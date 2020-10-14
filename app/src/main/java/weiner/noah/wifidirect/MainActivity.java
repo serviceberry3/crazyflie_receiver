@@ -1,11 +1,14 @@
 package weiner.noah.wifidirect;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 
+import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.NetworkInfo;
 import android.net.wifi.p2p.WifiP2pConfig;
 import android.net.wifi.p2p.WifiP2pDevice;
@@ -52,7 +55,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void initializeWiFiDirect() {
         wifiP2pManager =
-                (WifiP2pManager)getSystemService(Context.WIFI_P2P_SERVICE);
+                (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
 
         wifiDirectChannel = wifiP2pManager.initialize(this, getMainLooper(),
                 new WifiP2pManager.ChannelListener() {
@@ -70,14 +73,18 @@ public class MainActivity extends AppCompatActivity {
         public void onFailure(int reason) {
             String errorMessage = "WiFi Direct Failed: ";
             switch (reason) {
-                case WifiP2pManager.BUSY :
-                    errorMessage += "Framework busy."; break;
-                case WifiP2pManager.ERROR :
-                    errorMessage += "Internal error."; break;
-                case WifiP2pManager.P2P_UNSUPPORTED :
-                    errorMessage += "Unsupported."; break;
+                case WifiP2pManager.BUSY:
+                    errorMessage += "Framework busy.";
+                    break;
+                case WifiP2pManager.ERROR:
+                    errorMessage += "Internal error.";
+                    break;
+                case WifiP2pManager.P2P_UNSUPPORTED:
+                    errorMessage += "Unsupported.";
+                    break;
                 default:
-                    errorMessage += "Unknown error."; break;
+                    errorMessage += "Unknown error.";
+                    break;
             }
             Log.d(TAG, errorMessage);
         }
@@ -93,9 +100,9 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        tv = (TextView)findViewById(R.id.textView);
+        tv = (TextView) findViewById(R.id.textView);
 
-        listView = (ListView)findViewById(R.id.listView);
+        listView = (ListView) findViewById(R.id.listView);
 
         aa = new ArrayAdapter<WifiP2pDevice>(this, android.R.layout.simple_list_item_1, deviceList);
 
@@ -107,21 +114,20 @@ public class MainActivity extends AppCompatActivity {
         connectionfilter = new IntentFilter(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
         p2pEnabled = new IntentFilter(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
 
-        buttonDiscover = (Button)findViewById(R.id.buttonDiscover);
+        buttonDiscover = (Button) findViewById(R.id.buttonDiscover);
         buttonDiscover.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 discoverPeers();
             }
         });
 
-        Button buttonEnable = (Button)findViewById(R.id.buttonEnable);
+        Button buttonEnable = (Button) findViewById(R.id.buttonEnable);
         buttonEnable.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 /**
                  * Listing 16-20: Enabling Wi-Fi Direct on a device
                  */
-                Intent intent = new Intent(
-                        android.provider.Settings.ACTION_WIRELESS_SETTINGS);
+                Intent intent = new Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS);
 
                 startActivity(intent);
             }
@@ -159,12 +165,32 @@ public class MainActivity extends AppCompatActivity {
      * Listing 16-22: Discovering Wi-Fi Direct peers
      */
     private void discoverPeers() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
         wifiP2pManager.discoverPeers(wifiDirectChannel, actionListener);
     }
 
     BroadcastReceiver peerDiscoveryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                // TODO: Consider calling
+                //    ActivityCompat#requestPermissions
+                // here to request the missing permissions, and then overriding
+                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                //                                          int[] grantResults)
+                // to handle the case where the user grants the permission. See the documentation
+                // for ActivityCompat#requestPermissions for more details.
+                return;
+            }
             wifiP2pManager.requestPeers(wifiDirectChannel,
                     new WifiP2pManager.PeerListListener() {
                         public void onPeersAvailable(WifiP2pDeviceList peers) {
@@ -183,6 +209,16 @@ public class MainActivity extends AppCompatActivity {
         WifiP2pConfig config = new WifiP2pConfig();
         config.deviceAddress = device.deviceAddress;
 
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
         wifiP2pManager.connect(wifiDirectChannel, config, actionListener);
     }
 
