@@ -54,12 +54,14 @@ public class MainActivity extends AppCompatActivity {
     private WifiP2pManager.Channel wifiDirectChannel;
 
     private void initializeWiFiDirect() {
-        wifiP2pManager =
-                (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
+        //initialize the peer-to-peer (Wifi Direct) connection manager
+        wifiP2pManager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
 
+        //create a new channel
         wifiDirectChannel = wifiP2pManager.initialize(this, getMainLooper(),
                 new WifiP2pManager.ChannelListener() {
                     public void onChannelDisconnected() {
+                        //re-initialize the WifiDirect upon disconnection
                         initializeWiFiDirect();
                     }
                 }
@@ -103,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
         tv = (TextView) findViewById(R.id.textView);
 
         listView = (ListView) findViewById(R.id.listView);
+
 
         aa = new ArrayAdapter<WifiP2pDevice>(this, android.R.layout.simple_list_item_1, deviceList);
 
@@ -151,12 +154,10 @@ public class MainActivity extends AppCompatActivity {
                     WifiP2pManager.EXTRA_WIFI_STATE,
                     WifiP2pManager.WIFI_P2P_STATE_DISABLED);
 
-            switch (state) {
-                case (WifiP2pManager.WIFI_P2P_STATE_ENABLED):
-                    buttonDiscover.setEnabled(true);
-                    break;
-                default:
-                    buttonDiscover.setEnabled(false);
+            if (state == WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
+                buttonDiscover.setEnabled(true);
+            } else {
+                buttonDiscover.setEnabled(false);
             }
         }
     };
@@ -229,12 +230,13 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
 
-            // Extract the NetworkInfo
+            //Extract the NetworkInfo
             String extraKey = WifiP2pManager.EXTRA_NETWORK_INFO;
             NetworkInfo networkInfo =
                     (NetworkInfo)intent.getParcelableExtra(extraKey);
 
-            // Check if we're connected
+            //Check if we're connected
+            assert networkInfo != null;
             if (networkInfo.isConnected()) {
                 wifiP2pManager.requestConnectionInfo(wifiDirectChannel,
                         new WifiP2pManager.ConnectionInfoListener() {
@@ -289,11 +291,13 @@ public class MainActivity extends AppCompatActivity {
             Socket socket = new Socket();
             socket.bind(null);
             socket.connect(socketAddress, timeout);
-        } catch (IOException e) {
+        }
+
+        catch (IOException e) {
             Log.e(TAG, "IO Exception.", e);
         }
 
-        // TODO Start Receiving Messages
+        //TODO Start Receiving Messages
     }
 
     @Override
