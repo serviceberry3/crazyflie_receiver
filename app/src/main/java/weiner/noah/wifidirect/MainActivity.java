@@ -34,7 +34,7 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "WiFiDirectActivity";
+    private static final String TAG = "MainActivity";
 
     private ListView listView;
     private ArrayAdapter aa;
@@ -47,9 +47,9 @@ public class MainActivity extends AppCompatActivity {
 
     private Handler handler = new Handler();
 
-    /**
-     * Listing 16-18: Initializing Wi-Fi Direct
-     */
+    //This class provides API for managing Wi-Fi peer-to-peer (Wifi Direct) connectivity. This lets app discover available peers,
+    //setup connection to peers and query for list of peers. When a p2p connection is formed over wifi, the device continues
+    //to maintain the uplink connection over mobile or any other available network for internet connectivity on the device.
     private WifiP2pManager wifiP2pManager;
     private WifiP2pManager.Channel wifiDirectChannel;
 
@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
         //initialize the peer-to-peer (Wifi Direct) connection manager
         wifiP2pManager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
 
-        //create a new channel
+        //WifiP2pManager's initialize() fxn returns channel instance that is necessary for performing any further p2p operations
         wifiDirectChannel = wifiP2pManager.initialize(this, getMainLooper(),
                 new WifiP2pManager.ChannelListener() {
                     public void onChannelDisconnected() {
@@ -68,12 +68,14 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    /**
-     * Listing 16-19: Creating a WiFi P2P Manager Action Listener
-     */
+    //create WifiP2pManager ActionListener
+    //Most application calls need ActionListener instance for receiving callbacks ActionListener.onSuccess() or ActionListener.onFailure(), which
+    //indicate whether initiation of the action was a success or a failure. Reason of failure can be ERROR, P2P_UNSUPPORTED or BUSY
     private WifiP2pManager.ActionListener actionListener = new WifiP2pManager.ActionListener() {
         public void onFailure(int reason) {
             String errorMessage = "WiFi Direct Failed: ";
+
+
             switch (reason) {
                 case WifiP2pManager.BUSY:
                     errorMessage += "Framework busy.";
@@ -88,12 +90,14 @@ public class MainActivity extends AppCompatActivity {
                     errorMessage += "Unknown error.";
                     break;
             }
+
+            //print out the final error message to the log
             Log.d(TAG, errorMessage);
         }
 
         public void onSuccess() {
-            // Success!
-            // Return values will be returned using a Broadcast Intent
+            //Success!
+            //Return values will be returned using a Broadcast Intent
         }
     };
 
@@ -102,10 +106,8 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        tv = (TextView) findViewById(R.id.textView);
 
         listView = (ListView) findViewById(R.id.listView);
-
 
         aa = new ArrayAdapter<WifiP2pDevice>(this, android.R.layout.simple_list_item_1, deviceList);
 
@@ -117,14 +119,20 @@ public class MainActivity extends AppCompatActivity {
         connectionfilter = new IntentFilter(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
         p2pEnabled = new IntentFilter(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
 
+        //get the "DISCOVER PEERS" button
         buttonDiscover = (Button) findViewById(R.id.buttonDiscover);
+
+        //run discoverPeers() upon click
         buttonDiscover.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 discoverPeers();
             }
         });
 
+        //get the "ENABLE" button
         Button buttonEnable = (Button) findViewById(R.id.buttonEnable);
+
+        //set it so that "ENABLE" button just opens device wireless settings upon click
         buttonEnable.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 /**
@@ -132,64 +140,57 @@ public class MainActivity extends AppCompatActivity {
                  */
                 Intent intent = new Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS);
 
+                //open wifi settings
                 startActivity(intent);
             }
         });
 
+        //set list item (device) so that when clicked, connectTo() function is run on that device
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            public void onItemClick(AdapterView<?> arg0, View arg1, int index,
-                                    long arg3) {
+            public void onItemClick(AdapterView<?> arg0, View arg1, int index, long arg3) {
                 connectTo(deviceList.get(index));
             }
         });
     }
 
-    /**
-     * Listing 16-21: Receiving a Wi-Fi Direct status change
-     */
+    //receive a Wifi Direct status change
     BroadcastReceiver p2pStatusReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            int state = intent.getIntExtra(
-                    WifiP2pManager.EXTRA_WIFI_STATE,
-                    WifiP2pManager.WIFI_P2P_STATE_DISABLED);
+            int state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, WifiP2pManager.WIFI_P2P_STATE_DISABLED);
 
             if (state == WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
                 buttonDiscover.setEnabled(true);
-            } else {
+            }
+
+            else {
                 buttonDiscover.setEnabled(false);
             }
         }
     };
 
-    /**
-     * Listing 16-22: Discovering Wi-Fi Direct peers
-     */
+    //discover Wifi Direct peers
+    //An initiated discovery request from an app stays active until device starts connecting to a peer, forms a p2p group, or there's an explicit
+    //stopPeerDiscovery(). Apps can listen to WIFI_P2P_DISCOVERY_CHANGED_ACTION to know if a peer-to-peer discovery is running or stopped.
+    //WIFI_P2P_PEERS_CHANGED_ACTION indicates if peer list has changed
     private void discoverPeers() {
+        //make sure we have permission
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
+            Log.e(TAG, "discoverPeers(): ACCESS_FINE_LOCATION not granted");
             return;
         }
+
+        //run discoverPeers() method of WifiP2pManager
         wifiP2pManager.discoverPeers(wifiDirectChannel, actionListener);
     }
+
 
     BroadcastReceiver peerDiscoveryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
+            if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                    PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "peerDiscoveryReceiver.onReceive(): ACCESS_FINE_LOCATION not granted");
                 return;
             }
             wifiP2pManager.requestPeers(wifiDirectChannel,
