@@ -402,7 +402,7 @@ public class MainActivity extends AppCompatActivity {
 
                 int charsRead = inputStream.read(in);
 
-                Log.d(TAG, String.format("Got message from client: %c", in[0]));
+                Log.d(TAG, String.format("Got message from client: " + in[0]));
 
                 serverSocket.close();
             }
