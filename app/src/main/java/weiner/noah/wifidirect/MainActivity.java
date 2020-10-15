@@ -5,6 +5,7 @@ import androidx.core.app.ActivityCompat;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -27,6 +28,8 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -285,7 +288,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    //create a client socket
+    //create a client socket on a background thread
     private void initiateClientSocket(final String hostAddress) {
         new Thread(new Runnable() {
             @Override
@@ -297,10 +300,14 @@ public class MainActivity extends AppCompatActivity {
                 //create packet of host and port information
                 InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
 
-                try {
+                byte[] bytes = new byte[1];
 
-                    //create a client socket and connect it to the server
-                    Socket socket = new Socket();
+                bytes[0] = 0x30;
+
+                //create a client socket and connect it to the server
+                Socket socket = new Socket();
+
+                try {
 
                     Log.i(TAG, "initiateClientSocket(): calling bind");
                     socket.bind(null);
@@ -309,11 +316,42 @@ public class MainActivity extends AppCompatActivity {
 
                     success = 1;
                     Log.i(TAG, "Client-server connection successful!!");
+
+
+                    //Create a byte stream from a JPEG file and pipe it to the output stream
+                    //of the socket. This data is retrieved by the server device.
+                    OutputStream outputStream = socket.getOutputStream();
+                    ContentResolver cr = MainActivity.this.getApplicationContext().getContentResolver();
+
+                    //write a 4 into the stream
+                    outputStream.write(bytes);
+
+                    //close the stream
+                    outputStream.close();
                 }
 
                 catch (IOException e) {
                     Log.e(TAG, "IO Exception from trying to bind socket:", e);
                 }
+
+                /**
+                 * Clean up any open sockets when done
+                 * transferring or if an exception occurred.
+                 */
+
+                //executed no matter what, even if other exceptions occur
+                finally {
+                    if (socket.isConnected()) {
+                        try {
+                            socket.close();
+                        }
+
+                        catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+
             }
         }).start();
 
@@ -411,6 +449,18 @@ finally {
                 Socket client = serverSocket.accept();
 
                 Log.d(TAG, "Server: connection done");
+
+                byte[] in = new byte[10];
+
+                //now a client has initialized and transferred/output data via stream
+                //now we want to save the input stream from the client
+                InputStream inputStream = client.getInputStream();
+
+                int charsRead = inputStream.read(in);
+
+                Log.d(TAG, String.format("Got message from client: %c", in[0]));
+
+                serverSocket.close();
             }
 
             catch (IOException e) {
