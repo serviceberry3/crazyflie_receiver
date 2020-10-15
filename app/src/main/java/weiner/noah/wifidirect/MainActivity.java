@@ -15,6 +15,7 @@ import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
@@ -31,6 +32,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -116,7 +118,9 @@ public class MainActivity extends AppCompatActivity {
         initializeWiFiDirect();
 
         peerfilter = new IntentFilter(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
+
         connectionfilter = new IntentFilter(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
+
         p2pEnabled = new IntentFilter(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
 
         //get the "DISCOVER PEERS" button
@@ -180,6 +184,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        Log.i(TAG, "Running discoverPeers()...");
         //run discoverPeers() method of WifiP2pManager
         wifiP2pManager.discoverPeers(wifiDirectChannel, actionListener);
     }
@@ -193,6 +198,8 @@ public class MainActivity extends AppCompatActivity {
                 Log.e(TAG, "peerDiscoveryReceiver.onReceive(): ACCESS_FINE_LOCATION not granted");
                 return;
             }
+
+            Log.i(TAG, "Peers have changed");
             wifiP2pManager.requestPeers(wifiDirectChannel,
                     new WifiP2pManager.PeerListListener() {
                         public void onPeersAvailable(WifiP2pDeviceList peers) {
@@ -204,102 +211,165 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    /**
-     * Listing 16-23: Requesting a connection to a Wi-Fi Direct peer
-     */
+    //request connection to a wifi direct peer
     private void connectTo(WifiP2pDevice device) {
         WifiP2pConfig config = new WifiP2pConfig();
         config.deviceAddress = device.deviceAddress;
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
             return;
         }
         wifiP2pManager.connect(wifiDirectChannel, config, actionListener);
     }
 
-    /**
-     * Listing 16-24: Connecting to a Wi-Fi Direct peer
-     */
+    //wifi direct peer connection callback
     BroadcastReceiver connectionChangedReceiver = new BroadcastReceiver() {
+        //executes when the Wifi Direct connection status changes
         @Override
         public void onReceive(Context context, Intent intent) {
+            Log.i(TAG, "Wifi Direct connection status change detected");
 
             //Extract the NetworkInfo
             String extraKey = WifiP2pManager.EXTRA_NETWORK_INFO;
-            NetworkInfo networkInfo =
-                    (NetworkInfo)intent.getParcelableExtra(extraKey);
+            NetworkInfo networkInfo = (NetworkInfo) intent.getParcelableExtra(extraKey);
 
             //Check if we're connected
             assert networkInfo != null;
             if (networkInfo.isConnected()) {
+
+
+                Log.i(TAG, "Network is connected to something...");
                 wifiP2pManager.requestConnectionInfo(wifiDirectChannel,
                         new WifiP2pManager.ConnectionInfoListener() {
                             public void onConnectionInfoAvailable(WifiP2pInfo info) {
-                                // If the connection is established
+                                //If the connection is established
                                 if (info.groupFormed) {
-                                    // If we're the server
+                                    Log.i(TAG, "Connection has been established!");
+                                    //If we're the server
                                     if (info.isGroupOwner) {
-                                        // TODO Initiate server socket.
-                                        initiateServerSocket();
+                                        Log.i(TAG, "We're the server, creating ServerSocket in background and waiting for client...");
+                                        //initiateServerSocket();
+
+                                        //create ServerSocket in background and wait for client to connect
+                                        FileServerAsyncTask asyncServerSockInit = new FileServerAsyncTask();
+                                        asyncServerSockInit.execute();
                                     }
-                                    // If we're the client
+
+
+                                    //If we're the client
                                     else if (info.groupFormed) {
-                                        // TODO Initiate client socket.
-                                        initiateClientSocket(info.groupOwnerAddress.toString());
+                                        Log.i(TAG, "We're the client");
+
+                                        initiateClientSocket(info.groupOwnerAddress.getHostAddress());
                                     }
                                 }
                             }
                         });
-            } else {
+            }
+
+            else {
                 Log.d(TAG, "Wi-Fi Direct Disconnected");
             }
         }
     };
 
+
     private void initiateServerSocket() {
         ServerSocket serverSocket;
         try {
-            /**
-             * Listing 16-25: Creating a Server Socket
-             */
+            //instantiate a ServerSocket
             serverSocket = new ServerSocket(8666);
             Socket serverClient = serverSocket.accept();
-
-            // TODO Start Sending Messages
         } catch (IOException e) {
             Log.e(TAG, "I/O Exception", e);
         }
     }
 
-    private void initiateClientSocket(String hostAddress) {
-        /**
-         * Listing 16-26: Creating a client Socket
-         */
-        int timeout = 10000;
-        int port = 8666;
+    //create a client socket
+    private void initiateClientSocket(final String hostAddress) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int timeout = 10000;
+                int port = 8988;
+                int success = 0;
 
-        InetSocketAddress socketAddress
-                = new InetSocketAddress(hostAddress, port);
+                //create packet of host and port information
+                InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
 
-        try {
-            Socket socket = new Socket();
-            socket.bind(null);
-            socket.connect(socketAddress, timeout);
-        }
+                try {
 
-        catch (IOException e) {
-            Log.e(TAG, "IO Exception.", e);
-        }
+                    //create a client socket and connect it to the server
+                    Socket socket = new Socket();
 
-        //TODO Start Receiving Messages
+                    Log.i(TAG, "initiateClientSocket(): calling bind");
+                    socket.bind(null);
+
+                    socket.connect(socketAddress, timeout);
+
+                    success = 1;
+                    Log.i(TAG, "Client-server connection successful!!");
+                }
+
+                catch (IOException e) {
+                    Log.e(TAG, "IO Exception from trying to bind socket:", e);
+                }
+            }
+        }).start();
+
     }
+
+
+    /*
+    Context context = this.getApplicationContext();
+    String host;
+    int port;
+    int len;
+    Socket socket = new Socket();
+    byte buf[]  = new byte[1024];
+...
+        try {
+
+         * Create a client socket with the host,
+         * port, and timeout information.
+
+        socket.bind(null);
+        socket.connect((new InetSocketAddress(host, port)), 500);
+
+
+         //Create a byte stream from a JPEG file and pipe it to the output stream
+         //of the socket. This data is retrieved by the server device.
+        OutputStream outputStream = socket.getOutputStream();
+        ContentResolver cr = context.getContentResolver();
+        InputStream inputStream = null;
+        inputStream = cr.openInputStream(Uri.parse("path/to/picture.jpg"));
+        while ((len = inputStream.read(buf)) != -1) {
+            outputStream.write(buf, 0, len);
+        }
+        outputStream.close();
+        inputStream.close();
+    } catch (FileNotFoundException e) {
+        //catch logic
+    } catch (IOException e) {
+        //catch logic
+    }
+
+
+ //Clean up any open sockets when done
+ //transferring or if an exception occurred.
+finally {
+        if (socket != null) {
+            if (socket.isConnected()) {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                    //catch logic
+                }
+            }
+        }
+    }
+    */
+
 
     @Override
     protected void onPause() {
@@ -312,10 +382,61 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+
+        //register the broadcast receivers to listen
         registerReceiver(peerDiscoveryReceiver, peerfilter);
         registerReceiver(connectionChangedReceiver, connectionfilter);
         registerReceiver(p2pStatusReceiver, p2pEnabled);
     }
 
     private List<WifiP2pDevice> deviceList = new ArrayList<>();
+
+    /**
+     * A simple server socket that accepts connection and writes some data on
+     * the stream.
+     */
+    public static class FileServerAsyncTask extends AsyncTask<Void, Void, Void> { //params passed, progress update returned, final returned
+        private Context context;
+        private TextView statusText;
+
+        @Override
+        protected Void doInBackground(Void... params) {
+            try {
+                 //Create a server socket and wait for client connections. This
+                 //call blocks until a connection is accepted from a client
+                ServerSocket serverSocket = new ServerSocket(8988);
+
+                Log.d(TAG, "Server: Socket opened, waiting for client");
+
+                Socket client = serverSocket.accept();
+
+                Log.d(TAG, "Server: connection done");
+            }
+
+            catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            return null;
+        }
+
+
+        /*
+         * (non-Javadoc)
+         * @see android.os.AsyncTask#onPostExecute(java.lang.Object)
+         */
+        @Override
+        protected void onPostExecute (Void result) {
+
+        }
+
+
+        /*
+         * (non-Javadoc)
+         * @see android.os.AsyncTask#onPreExecute()
+         */
+        @Override
+        protected void onPreExecute() {
+        }
+    }
 }
