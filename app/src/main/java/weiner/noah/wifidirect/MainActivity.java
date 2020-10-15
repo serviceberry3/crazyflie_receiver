@@ -142,9 +142,6 @@ public class MainActivity extends AppCompatActivity {
         //set it so that "ENABLE" button just opens device wireless settings upon click
         buttonEnable.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                /**
-                 * Listing 16-20: Enabling Wi-Fi Direct on a device
-                 */
                 Intent intent = new Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS);
 
                 //open wifi settings
@@ -283,7 +280,9 @@ public class MainActivity extends AppCompatActivity {
             //instantiate a ServerSocket
             serverSocket = new ServerSocket(8666);
             Socket serverClient = serverSocket.accept();
-        } catch (IOException e) {
+        }
+
+        catch (IOException e) {
             Log.e(TAG, "I/O Exception", e);
         }
     }
@@ -334,11 +333,9 @@ public class MainActivity extends AppCompatActivity {
                     Log.e(TAG, "IO Exception from trying to bind socket:", e);
                 }
 
-                /**
-                 * Clean up any open sockets when done
-                 * transferring or if an exception occurred.
-                 */
 
+
+                //Clean up any open sockets when done transferring or if an exception occurred.
                 //executed no matter what, even if other exceptions occur
                 finally {
                     if (socket.isConnected()) {
@@ -356,57 +353,6 @@ public class MainActivity extends AppCompatActivity {
         }).start();
 
     }
-
-
-    /*
-    Context context = this.getApplicationContext();
-    String host;
-    int port;
-    int len;
-    Socket socket = new Socket();
-    byte buf[]  = new byte[1024];
-...
-        try {
-
-         * Create a client socket with the host,
-         * port, and timeout information.
-
-        socket.bind(null);
-        socket.connect((new InetSocketAddress(host, port)), 500);
-
-
-         //Create a byte stream from a JPEG file and pipe it to the output stream
-         //of the socket. This data is retrieved by the server device.
-        OutputStream outputStream = socket.getOutputStream();
-        ContentResolver cr = context.getContentResolver();
-        InputStream inputStream = null;
-        inputStream = cr.openInputStream(Uri.parse("path/to/picture.jpg"));
-        while ((len = inputStream.read(buf)) != -1) {
-            outputStream.write(buf, 0, len);
-        }
-        outputStream.close();
-        inputStream.close();
-    } catch (FileNotFoundException e) {
-        //catch logic
-    } catch (IOException e) {
-        //catch logic
-    }
-
-
- //Clean up any open sockets when done
- //transferring or if an exception occurred.
-finally {
-        if (socket != null) {
-            if (socket.isConnected()) {
-                try {
-                    socket.close();
-                } catch (IOException e) {
-                    //catch logic
-                }
-            }
-        }
-    }
-    */
 
 
     @Override
@@ -429,10 +375,8 @@ finally {
 
     private List<WifiP2pDevice> deviceList = new ArrayList<>();
 
-    /**
-     * A simple server socket that accepts connection and writes some data on
-     * the stream.
-     */
+
+    //Server socket that initializes in background and accepts connection and reads data from client (use of AsyncTask here is probly stupid)
     public static class FileServerAsyncTask extends AsyncTask<Void, Void, Void> { //params passed, progress update returned, final returned
         private Context context;
         private TextView statusText;
@@ -471,20 +415,11 @@ finally {
         }
 
 
-        /*
-         * (non-Javadoc)
-         * @see android.os.AsyncTask#onPostExecute(java.lang.Object)
-         */
         @Override
         protected void onPostExecute (Void result) {
-
         }
 
 
-        /*
-         * (non-Javadoc)
-         * @see android.os.AsyncTask#onPreExecute()
-         */
         @Override
         protected void onPreExecute() {
         }
