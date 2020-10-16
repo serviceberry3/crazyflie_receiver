@@ -52,16 +52,30 @@ public class TimeServer {
             //give wpa_supplicant time to initialize
             TimeUnit.SECONDS.sleep(8);
 
+            p = Runtime.getRuntime().exec("sudo wpa_cli -i wlp3s0 p2p_find");
+            p.waitFor();
+
+
+
+            TimeUnit.SECONDS.sleep(3);
+
+            p = Runtime.getRuntime().exec("sudo wpa_cli -i wlp3s0 p2p_peers");
+            p.waitFor();
+
+
+
+            TimeUnit.SECONDS.sleep(3);
+
             
             //become p2p group owner
-            p = Runtime.getRuntime().exec("sudo wpa_cli -i wlp3s0 p2p_group_add");
-            p.waitFor();
+            //p = Runtime.getRuntime().exec("sudo wpa_cli -i wlp3s0 p2p_group_add");
+            //p.waitFor();
 
             System.out.println("p2p_group_add done");
 
-            //set IP
-            p = Runtime.getRuntime().exec("sudo ifconfig p2p-wlp3s0-0 10.1.10.119");
-            p.waitFor();
+            //assign ip address to wlp3s0-0
+            //p = Runtime.getRuntime().exec("sudo ifconfig p2p-wlp3s0-0 10.1.10.133");
+            //p.waitFor();
 
             System.out.println("ifconfig done");
         }
@@ -90,7 +104,7 @@ public class TimeServer {
                 try {
                     //re-enter wpa_cli using newly created p2p-wlp3s0-0 interface
                     //intitiate pushbutton connection event
-                    p1 = Runtime.getRuntime().exec("sudo wpa_cli -i p2p-wlp3s0-0 wps_pbc"); //for some reason reusing p was not working
+                    p1 = Runtime.getRuntime().exec("sudo wpa_cli -i wlp3s0 p2p_connect 7a:4a:4b:cd:0c:62 pbc go_intent=15"); //for some reason reusing p was not working
                     p1.waitFor();
 
                     System.out.println("wps_pbc done");

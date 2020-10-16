@@ -27,9 +27,12 @@ import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -278,7 +281,7 @@ public class MainActivity extends AppCompatActivity {
         ServerSocket serverSocket;
         try {
             //instantiate a ServerSocket
-            serverSocket = new ServerSocket(8666);
+            serverSocket = new ServerSocket(8988);
             Socket serverClient = serverSocket.accept();
         }
 
@@ -286,6 +289,12 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "I/O Exception", e);
         }
     }
+
+
+    private BufferedReader in;
+    private PrintWriter out;
+    private InputStream inStream;
+    private OutputStream outStream;
 
     //create a client socket on a background thread
     private void initiateClientSocket(final String hostAddress) {
@@ -307,7 +316,6 @@ public class MainActivity extends AppCompatActivity {
                 Socket socket = new Socket();
 
                 try {
-
                     Log.i(TAG, "initiateClientSocket(): calling bind");
                     socket.bind(null);
 
@@ -316,7 +324,36 @@ public class MainActivity extends AppCompatActivity {
                     success = 1;
                     Log.i(TAG, "Client-server connection successful!!");
 
+                    //get resources to output stuff to the client's input stream
+                    //out = new PrintWriter(socket.getOutputStream(), true);
 
+                    //get the client's input stream (incoming data to client)
+                    //in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+                    outStream = socket.getOutputStream();
+                    inStream = socket.getInputStream();
+
+                    long start = System.currentTimeMillis();
+
+                    //Log.i(TAG, "Client: sending 48 to server...");
+
+                    //ping the server
+                    //out.print(48);
+                    outStream.write(48);
+
+                    //Log.i(TAG, "Client: data sent to server complete, now reading...");
+
+                    //int got = in.read();
+
+                    int got = inStream.read();
+
+                    //Log.i(TAG, "Client: readback complete");
+
+                    long end = System.currentTimeMillis();
+
+                    Log.i(TAG, String.format("Got %d back from server after %d ms", got, (end - start) ));
+
+                    /*
                     //Create a byte stream from a JPEG file and pipe it to the output stream
                     //of the socket. This data is retrieved by the server device.
                     OutputStream outputStream = socket.getOutputStream();
@@ -327,12 +364,12 @@ public class MainActivity extends AppCompatActivity {
 
                     //close the stream
                     outputStream.close();
+                     */
                 }
 
                 catch (IOException e) {
                     Log.e(TAG, "IO Exception from trying to bind socket:", e);
                 }
-
 
 
                 //Clean up any open sockets when done transferring or if an exception occurred.
@@ -348,7 +385,6 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                 }
-
             }
         }).start();
 
@@ -376,10 +412,17 @@ public class MainActivity extends AppCompatActivity {
     private List<WifiP2pDevice> deviceList = new ArrayList<>();
 
 
+
+
     //Server socket that initializes in background and accepts connection and reads data from client (use of AsyncTask here is probly stupid)
     public static class FileServerAsyncTask extends AsyncTask<Void, Void, Void> { //params passed, progress update returned, final returned
         private Context context;
         private TextView statusText;
+        private BufferedReader in;
+        private PrintWriter out;
+
+        private OutputStream outStream;
+        private InputStream inStream;
 
         @Override
         protected Void doInBackground(Void... params) {
@@ -390,10 +433,41 @@ public class MainActivity extends AppCompatActivity {
 
                 Log.d(TAG, "Server: Socket opened, waiting for client");
 
+                //block until connection from client comes through
                 Socket client = serverSocket.accept();
 
                 Log.d(TAG, "Server: connection done");
 
+                //get stream to output stuff to the client's input stream
+                //out = new PrintWriter(client.getOutputStream(), true);
+
+                //get stream to read stuff in from the client's output stream
+                //in = new BufferedReader(new InputStreamReader(client.getInputStream()));
+
+                outStream = client.getOutputStream();
+                inStream = client.getInputStream();
+
+                Log.d(TAG, "Server: reading in data...");
+
+                //wait for data
+                //int greeting = in.read();
+                int greeting = inStream.read();
+
+                Log.d(TAG, "Server: reading in data complete");
+
+                if (greeting == 48) {
+                    //out.print(50);
+                    outStream.write(50);
+                }
+
+
+                else {
+                    Log.i(TAG, "Server: no data found");
+                    //out.println("Unrecognized greeting");
+                }
+
+
+                /*
                 byte[] in = new byte[10];
 
                 //now a client has initialized and transferred/output data via stream
@@ -404,7 +478,9 @@ public class MainActivity extends AppCompatActivity {
 
                 Log.d(TAG, String.format("Got message from client: " + in[0]));
 
-                serverSocket.close();
+                 */
+
+                //serverSocket.close();
             }
 
             catch (IOException e) {
