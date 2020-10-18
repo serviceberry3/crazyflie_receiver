@@ -152,6 +152,15 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        Button buttonServer = (Button) findViewById(R.id.buttonServer);
+
+        buttonServer.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                new becomeServerForPC().start();
+            }
+        });
+
         //set list item (device) so that when clicked, connectTo() function is run on that device
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             public void onItemClick(AdapterView<?> arg0, View arg1, int index, long arg3) {
@@ -250,12 +259,14 @@ public class MainActivity extends AppCompatActivity {
                                     Log.i(TAG, "Connection has been established!");
                                     //If we're the server
                                     if (info.isGroupOwner) {
+
                                         Log.i(TAG, "We're the server, creating ServerSocket in background and waiting for client...");
                                         //initiateServerSocket();
 
                                         //create ServerSocket in background and wait for client to connect
                                         FileServerAsyncTask asyncServerSockInit = new FileServerAsyncTask();
                                         asyncServerSockInit.execute();
+
                                     }
 
 
@@ -291,6 +302,49 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+    public static class becomeServerForPC extends Thread {
+        @Override
+        public void run() {
+            Log.d(TAG, "Start becomeServerForPC thread...");
+
+            ServerSocket serverSocket = null;
+
+            try {
+                //create server socket and wait for client connections.
+                serverSocket = new ServerSocket(8988);
+
+                Log.d(TAG, "Socket waiting " + serverSocket.getLocalSocketAddress().toString() );
+
+                Socket client = serverSocket.accept();
+
+                InputStream inputStream = client.getInputStream();
+
+                Log.d(TAG, "InputStream is available: " + String.valueOf(inputStream.available()));
+
+                //shut down server
+                serverSocket.close();
+            }
+
+            catch (IOException e) {
+                Log.e(TAG, "becomeServerForPC received exception " + e.getMessage());
+
+                e.printStackTrace();
+
+                //make sure server is closed
+                if (serverSocket != null) {
+                    try {
+                        serverSocket.close();
+                    }
+                    catch (IOException ex) {
+                        Log.e(TAG, "Failed to close socket exception " + ex.getMessage());
+                    }
+                }
+            }
+
+        }
+    }
+
+
     private BufferedReader in;
     private PrintWriter out;
     private InputStream inStream;
@@ -301,6 +355,8 @@ public class MainActivity extends AppCompatActivity {
         new Thread(new Runnable() {
             @Override
             public void run() {
+                Log.i(TAG, "Address :" + hostAddress);
+
                 int timeout = 10000;
                 int port = 8988;
                 int success = 0;
@@ -317,6 +373,8 @@ public class MainActivity extends AppCompatActivity {
 
                 try {
                     Log.i(TAG, "initiateClientSocket(): calling bind");
+
+
                     socket.bind(null);
 
                     socket.connect(socketAddress, timeout);
@@ -330,6 +388,7 @@ public class MainActivity extends AppCompatActivity {
                     //get the client's input stream (incoming data to client)
                     //in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
+                    /*
                     outStream = socket.getOutputStream();
                     inStream = socket.getInputStream();
 
@@ -413,7 +472,6 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-
     //Server socket that initializes in background and accepts connection and reads data from client (use of AsyncTask here is probly stupid)
     public static class FileServerAsyncTask extends AsyncTask<Void, Void, Void> { //params passed, progress update returned, final returned
         private Context context;
@@ -431,7 +489,13 @@ public class MainActivity extends AppCompatActivity {
                  //call blocks until a connection is accepted from a client
                 ServerSocket serverSocket = new ServerSocket(8988);
 
-                Log.d(TAG, "Server: Socket opened, waiting for client");
+                Log.d(TAG, "Server: Socket opened port 8988, waiting for client");
+
+                Log.i(TAG, "Address: " + serverSocket.getLocalSocketAddress());
+
+                //String hostname =
+
+                //serverSocket.bind();
 
                 //block until connection from client comes through
                 Socket client = serverSocket.accept();
@@ -444,6 +508,7 @@ public class MainActivity extends AppCompatActivity {
                 //get stream to read stuff in from the client's output stream
                 //in = new BufferedReader(new InputStreamReader(client.getInputStream()));
 
+                /*
                 outStream = client.getOutputStream();
                 inStream = client.getInputStream();
 
