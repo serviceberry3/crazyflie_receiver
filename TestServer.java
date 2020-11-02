@@ -114,7 +114,7 @@ public class TestServer {
         int success = 0;
 
         //create packet of host and port information for the server, using IP of group owner
-        InetSocketAddress socketAddress = new InetSocketAddress("192.168.49.1", port); //192.168.49.1
+        InetSocketAddress socketAddress = new InetSocketAddress("192.168.49.1", 8988); //192.168.49.1
 
         //test data transfer using byte array of size one
         byte[] bytes = new byte[1];
