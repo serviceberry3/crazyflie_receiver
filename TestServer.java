@@ -6,16 +6,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
 
-/**
- * This program demonstrates a simple TCP/IP socket server.
- *
- * @author www.codejava.net
- */
-public class TimeServer {
 
-
+public class TestServer {
     public static void main(String[] args) {
-        
+        //make sure port number was passed
         if (args.length < 1) return;
 
 
@@ -102,7 +96,6 @@ public class TimeServer {
             p.waitFor();
 
             TimeUnit.SECONDS.sleep(5); 
-        
         }
 
         catch (IOException e) {
@@ -118,38 +111,36 @@ public class TimeServer {
 
 
         int timeout = 10000;
-        //int port = 8988;
         int success = 0;
 
         //create packet of host and port information for the server, using IP of group owner
-        InetSocketAddress socketAddress = new InetSocketAddress("192.168.49.1", 8988); //192.168.49.1
+        InetSocketAddress socketAddress = new InetSocketAddress("192.168.49.1", port); //192.168.49.1
 
+        //test data transfer using byte array of size one
         byte[] bytes = new byte[1];
 
+        //put a '0' char into the array
         bytes[0] = 0x30;
 
+        //create a new client socket
         Socket socket = new Socket();
 
+
         try {
-            //Log.i(TAG, "initiateClientSocket(): calling bind");
-
-            System.out.println("Binding socket");
-
-            //binds the socket to a local address
-            //socket.bind(null);
-
-
             System.out.println("Calling socket.connect...");
 
-            //socketAddress here should be the server address
+            //connect the socket to the p2p host IP (the Android device). SocketAddress here should be the server address
             socket.connect(socketAddress, timeout);
-
-            success = 1;
-
 
             System.out.println("Client-server connection successful!!");
 
+            //close the socket
             socket.close();
+
+
+
+            //DATA TRANSFER TESTING
+
 
             //get resources to output stuff to the client's input stream
             //out = new PrintWriter(socket.getOutputStream(), true);
@@ -197,8 +188,6 @@ public class TimeServer {
         }
 
         catch (IOException e) {
-            //Log.e(TAG, "IO Exception from trying to bind client socket:", e);
-
             System.out.println("Client socket connection timed out");
             e.printStackTrace();
         }
@@ -219,104 +208,6 @@ public class TimeServer {
                 }
             }
         }
-        */
-        
-/*
-        //launch a client socket
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                int timeout = 10000;
-                int port = 8988;
-                int success = 0;
-
-                //create packet of host and port information
-                InetSocketAddress socketAddress = new InetSocketAddress("192.168.49.1", port);
-
-                byte[] bytes = new byte[1];
-
-                bytes[0] = 0x30;
-
-                //create a client socket and connect it to the server
-                Socket socket = new Socket();
-
-                try {
-                    //Log.i(TAG, "initiateClientSocket(): calling bind");
-                    socket.bind(null);
-
-                    socket.connect(socketAddress, timeout);
-
-                    success = 1;
-
-
-                    System.out.println("Client-server connection successful!!");
-
-                    //get resources to output stuff to the client's input stream
-                    //out = new PrintWriter(socket.getOutputStream(), true);
-
-                    //get the client's input stream (incoming data to client)
-                    //in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-                    /*
-                    outStream = socket.getOutputStream();
-                    inStream = socket.getInputStream();
-
-                    long start = System.currentTimeMillis();
-
-                    //Log.i(TAG, "Client: sending 48 to server...");
-
-                    //ping the server
-                    //out.print(48);
-                    outStream.write(48);
-
-                    //Log.i(TAG, "Client: data sent to server complete, now reading...");
-
-                    //int got = in.read();
-
-                    int got = inStream.read();
-
-                    //Log.i(TAG, "Client: readback complete");
-
-                    long end = System.currentTimeMillis();
-
-                    Log.i(TAG, String.format("Got %d back from server after %d ms", got, (end - start) ));
-
-                    
-                    //Create a byte stream from a JPEG file and pipe it to the output stream
-                    //of the socket. This data is retrieved by the server device.
-                    OutputStream outputStream = socket.getOutputStream();
-                    ContentResolver cr = MainActivity.this.getApplicationContext().getContentResolver();
-
-                    //write a 4 into the stream
-                    outputStream.write(bytes);
-
-                    //close the stream
-                    outputStream.close();
-                    
-                }
-
-                catch (IOException e) {
-                    //Log.e(TAG, "IO Exception from trying to bind client socket:", e);
-                }
-
-
-                //Clean up any open sockets when done transferring or if an exception occurred.
-                //executed no matter what, even if other exceptions occur
-                finally {
-                    if (socket.isConnected()) {
-                        try {
-                            socket.close();
-                        }
-
-                        catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
-            }
-        }).start();
-
-
         */
     }
 }
