@@ -33,12 +33,12 @@ DROID=$(sudo wpa_cli -i wlan0 p2p_peers)
 
 sleep 3
 
-#intitiate pushbutton connection event
+#intitiate pushbutton connection event with whatever MAC was found
 sudo wpa_cli -i wlan0 p2p_connect $DROID pbc go_intent=0
 
 #start up the IP assigner
 sudo udhcpd /etc/udhcpd.conf
 
-#assign IP address to the p2p network (required)
-sudo dhclient p2p-wlan0-0
+#assign IP address to the p2p network (required) - verbose logging turned on
+sudo dhclient -v p2p-wlan0-0
 
