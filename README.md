@@ -10,9 +10,9 @@ ctrl_interface=/var/run/wpa_supplicant
 update_config=1  
 device_name=My P2P Device  
 
-(the device name is optional). You also might need to change all instances of wlp3s0 in the shell script to wlan0 depending on what your interface in named (run ifconfig to see).  
+(the device name is optional). You also might need to change all instances of wlp3s0 in the shell script to wlan0 depending on what your interface is named (run ifconfig to see).  
 
-I've been having some problems with dhclient hanging when trying to assign an IP to the p2p-wlan0-0 interface. I'm working on figuring out why. 
+I've been having some problems with dhclient hanging when trying to assign an IP to the p2p-wlan0-0 interface (last line of the shell script). I'm working on figuring out why. 
 
 
 
