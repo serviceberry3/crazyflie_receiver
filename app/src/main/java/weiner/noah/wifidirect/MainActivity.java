@@ -26,6 +26,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -197,6 +198,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Log.i(TAG, "Running discoverPeers()...");
+
+
         //run discoverPeers() method of WifiP2pManager
         wifiP2pManager.discoverPeers(wifiDirectChannel, actionListener);
     }
@@ -231,6 +234,8 @@ public class MainActivity extends AppCompatActivity {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             return;
         }
+
+        Log.i(TAG, "Running wifip2pman.connect...");
         wifiP2pManager.connect(wifiDirectChannel, config, actionListener);
     }
 
@@ -257,6 +262,9 @@ public class MainActivity extends AppCompatActivity {
                                 //If the connection is established
                                 if (info.groupFormed) {
                                     Log.i(TAG, "Connection has been established!");
+                                    Toast.makeText(MainActivity.this, "Connection has been established!", Toast.LENGTH_SHORT).show();
+
+
                                     //If we're the server
                                     if (info.isGroupOwner) {
 
@@ -266,7 +274,6 @@ public class MainActivity extends AppCompatActivity {
                                         //create ServerSocket in background and wait for client to connect
                                         FileServerAsyncTask asyncServerSockInit = new FileServerAsyncTask();
                                         asyncServerSockInit.execute();
-
                                     }
 
 
@@ -350,6 +357,9 @@ public class MainActivity extends AppCompatActivity {
     private InputStream inStream;
     private OutputStream outStream;
 
+
+//----------------------------------------------------------------CLIENT CODE-------------------------------------------------------------------------------
+
     //create a client socket on a background thread
     private void initiateClientSocket(final String hostAddress) {
         new Thread(new Runnable() {
@@ -374,56 +384,22 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     Log.i(TAG, "initiateClientSocket(): calling bind");
 
-
                     socket.bind(null);
 
                     socket.connect(socketAddress, timeout);
 
-                    success = 1;
                     Log.i(TAG, "Client-server connection successful!!");
 
-                    //get resources to output stuff to the client's input stream
-                    //out = new PrintWriter(socket.getOutputStream(), true);
-
-                    //get the client's input stream (incoming data to client)
-                    //in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-                    /*
+                    //get input and output streams for the socket
                     outStream = socket.getOutputStream();
                     inStream = socket.getInputStream();
 
-                    long start = System.currentTimeMillis();
+                    Log.i(TAG, "Client: sending 48 to server...");
 
-                    //Log.i(TAG, "Client: sending 48 to server...");
-
-                    //ping the server
-                    //out.print(48);
+                    //ping the server test
                     outStream.write(48);
 
-                    //Log.i(TAG, "Client: data sent to server complete, now reading...");
-
-                    //int got = in.read();
-
-                    int got = inStream.read();
-
-                    //Log.i(TAG, "Client: readback complete");
-
-                    long end = System.currentTimeMillis();
-
-                    Log.i(TAG, String.format("Got %d back from server after %d ms", got, (end - start) ));
-
-                    /*
-                    //Create a byte stream from a JPEG file and pipe it to the output stream
-                    //of the socket. This data is retrieved by the server device.
-                    OutputStream outputStream = socket.getOutputStream();
-                    ContentResolver cr = MainActivity.this.getApplicationContext().getContentResolver();
-
-                    //write a 4 into the stream
-                    outputStream.write(bytes);
-
-                    //close the stream
-                    outputStream.close();
-                     */
+                    Log.i(TAG, "Client: data sent to server complete, now reading...");
                 }
 
                 catch (IOException e) {
@@ -449,6 +425,7 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+//-----------------------------------------------------------------CLIENT CODE-------------------------------------------------------------------------------
 
     @Override
     protected void onPause() {
@@ -468,92 +445,69 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(p2pStatusReceiver, p2pEnabled);
     }
 
+    //the list of p2p devices found
     private List<WifiP2pDevice> deviceList = new ArrayList<>();
 
 
+//---------------------------------------------------------------------SERVER CODE---------------------------------------------------------------------------
 
     //Server socket that initializes in background and accepts connection and reads data from client (use of AsyncTask here is probly stupid)
     public static class FileServerAsyncTask extends AsyncTask<Void, Void, Void> { //params passed, progress update returned, final returned
         private Context context;
         private TextView statusText;
-        private BufferedReader in;
-        private PrintWriter out;
 
         private OutputStream outStream;
         private InputStream inStream;
+
+        private ServerSocket serverSocket;
 
         @Override
         protected Void doInBackground(Void... params) {
             try {
                  //Create a server socket and wait for client connections. This
                  //call blocks until a connection is accepted from a client
-                ServerSocket serverSocket = new ServerSocket(8988);
+                serverSocket = new ServerSocket(8988);
 
                 Log.d(TAG, "Server: Socket opened port 8988, waiting for client");
-
                 Log.i(TAG, "Address: " + serverSocket.getLocalSocketAddress());
-
-                //String hostname =
-
-                //serverSocket.bind();
 
                 //block until connection from client comes through
                 Socket client = serverSocket.accept();
 
-                Log.d(TAG, "Server: connection done");
+                Log.d(TAG, "Server: connection from client came through");
 
-                //get stream to output stuff to the client's input stream
-                //out = new PrintWriter(client.getOutputStream(), true);
-
-                //get stream to read stuff in from the client's output stream
-                //in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-
-                /*
+                //get input and output streams for the client
                 outStream = client.getOutputStream();
                 inStream = client.getInputStream();
 
                 Log.d(TAG, "Server: reading in data...");
 
-                //wait for data
-                //int greeting = in.read();
-                int greeting = inStream.read();
-
-                Log.d(TAG, "Server: reading in data complete");
-
-                if (greeting == 48) {
-                    //out.print(50);
-                    outStream.write(50);
-                }
-
-
-                else {
-                    Log.i(TAG, "Server: no data found");
-                    //out.println("Unrecognized greeting");
-                }
-
-
-                /*
                 byte[] in = new byte[10];
 
-                //now a client has initialized and transferred/output data via stream
-                //now we want to save the input stream from the client
-                InputStream inputStream = client.getInputStream();
+                //this call BLOCKS until data is detected and read in
+                int dataIn = inStream.read(in);
 
-                int charsRead = inputStream.read(in);
-
+                Log.d(TAG, "Server: reading in data complete");
                 Log.d(TAG, String.format("Got message from client: " + in[0]));
-
-                 */
-
-                //serverSocket.close();
             }
 
             catch (IOException e) {
                 e.printStackTrace();
             }
 
+            finally {
+                try {
+                    //close up the socket
+                    serverSocket.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
             return null;
         }
+
+//--------------------------------------------------------------------SERVER CODE------------------------------------------------------------------------
 
 
         @Override
