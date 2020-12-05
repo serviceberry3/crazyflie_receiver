@@ -221,7 +221,7 @@ public class MainActivity extends AppCompatActivity {
 
 
         //set up the button click listener for list devices
-        ((Button)findViewById(R.id.button1)).setOnClickListener(new View.OnClickListener() {
+        ((Button)findViewById(R.id.buttonListUsbDevices)).setOnClickListener(new View.OnClickListener() {
 
             @Override
             public void onClick(View v) {
@@ -235,13 +235,14 @@ public class MainActivity extends AppCompatActivity {
                     assert usbController != null;
                     usbController.stop();
                     usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
-                    usbController.clearData();
                 }
             }
         });
 
 
+        //SOME OPTIONAL BUTTONS FOR USB TESTING
 
+        /*
         //set up LED button click listener
         final Button ledButton = ((Button)findViewById(R.id.led_button));
 
@@ -290,8 +291,8 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(MainActivity.this, "No data was received from the Arduino.", Toast.LENGTH_SHORT).show();
                 }
             }
-        });
-        
+        });*/
+
     }
 
     //receive a Wifi Direct status change
@@ -498,9 +499,13 @@ public class MainActivity extends AppCompatActivity {
                 //create packet of host and port information
                 InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
 
+                //test data
                 byte[] bytes = new byte[1];
-
                 bytes[0] = 0x30;
+
+                //get packet from controller to be relayed
+                byte[] inData = new byte[33];
+                byte[] outData = new byte[33];
 
                 //create a client socket and connect it to the server
                 Socket socket = new Socket();
@@ -530,6 +535,30 @@ public class MainActivity extends AppCompatActivity {
 
                 catch (IOException e) {
                     Log.e(TAG, "IO Exception from trying to bind socket:", e);
+                }
+
+
+                //infinitely get packets from the controller, relay them to the drone via USB, get packet back, and relay that back to the controller over WifiDirect
+                while (true) {
+                    try {
+                        //this call blocks until it reads in data
+                        int amtDataRead = inStream.read(inData);
+
+                        //put the packet thru to the drone, getting the ack back
+                        usbController.sendBulkTransfer(inData, outData);
+
+                        Log.i(TAG, "Got packet from controller to relay:");
+                        for (byte thisByte : outData) {
+                            Log.i(TAG, String.format("0x%02X", thisByte));
+                        }
+
+                        //send ack to controller
+                        outStream.write(outData);
+                    }
+
+                    catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
 
 

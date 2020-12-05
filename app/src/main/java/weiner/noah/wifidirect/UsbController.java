@@ -50,6 +50,8 @@ public class UsbController {
 
     private UsbRequest readingRequest;
 
+    private static int TRANSFER_TIMEOUT = 1000;
+
     //separate thread for usb data transfer
     private Thread mUsbThread, mReceiveThread;
 
@@ -199,16 +201,21 @@ public class UsbController {
                 }
             }
             Log.d("STARTTHREADS", "Starting data transfer threads...");
+
+
+
             //start setting up the USB device in new thread
-            startDataTransferThreads(device);
+            //startDataTransferThreads(device);
         }
+
+
         else {
             Log.d("ERROR", "Error found");
         }
     }
 
     private void listDevices(IPermissionListener permissionListener) {
-        Log.d("DBUG", "Welcome to listDevices");
+        Log.d("DBUG", "Welcome to listDevices()");
         HashMap<String, UsbDevice> devices = mUsbManager.getDeviceList();
 
         //print out all connected USB devices found
@@ -290,7 +297,9 @@ public class UsbController {
                         try {
                             //have this thread wait until another thread invokes notify (sSendLock)
                             sSendLock.wait();
-                        } catch (InterruptedException e) {
+                        }
+
+                        catch (InterruptedException e) {
                             //on interrupt exception, if stop is set, then call onStopped()
                             if (mStop) {
                                 Log.e("ERROR", "InterruptedException in synchron");
@@ -374,6 +383,22 @@ public class UsbController {
             //wake up sSendLock for bulk transfer
             sSendLock.notify();
         }
+    }
+
+
+    //send packet to drone via USB, and receive Ack back
+    public int sendBulkTransfer(byte[] data, byte[] receiveData){
+        int returnCode = -1;
+
+        //make sure we have a valid connection
+        if (connection != null) {
+            //send the data
+            connection.bulkTransfer(out, data, data.length, TRANSFER_TIMEOUT);
+
+            //receive the Ack
+            returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+        }
+        return returnCode;
     }
 
     //receive data
@@ -482,11 +507,11 @@ public class UsbController {
 
 
     private class ReadRunnable implements Runnable {
-        private byte[] incomingData = new byte[1];
+        private byte[] incomingData = new byte[33];
         @Override
         public void run() {
             //queue up
-            final ByteBuffer buffer = ByteBuffer.allocate(22);
+            final ByteBuffer buffer = ByteBuffer.allocate(33);
 
             readingRequest = new UsbRequest();
 
@@ -495,7 +520,7 @@ public class UsbController {
 
             //wait for data to become available to receive
             while (true) {
-                if (readingRequest.queue(buffer, 22)) {
+                if (readingRequest.queue(buffer, 33)) {
                     Log.d("QUEUE", "WAITING FOR DATA...");
                     connection.requestWait();
 

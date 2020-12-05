@@ -23,6 +23,12 @@
         android:layout_height="wrap_content"
         android:text="Launch as server and wait" />
 
+    <Button
+        android:id="@+id/buttonListUsbDevices"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="List USB devices/request connection" />
+
     <ListView
         android:id="@+id/listView"
         android:layout_width="match_parent"
