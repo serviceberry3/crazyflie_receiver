@@ -504,8 +504,8 @@ public class MainActivity extends AppCompatActivity {
                 bytes[0] = 0x30;
 
                 //get packet from controller to be relayed
-                byte[] inData = new byte[33];
-                byte[] outData = new byte[33];
+                final byte[] inData = new byte[17];
+                byte[] outData = new byte[17];
 
                 //create a client socket and connect it to the server
                 Socket socket = new Socket();
@@ -537,28 +537,45 @@ public class MainActivity extends AppCompatActivity {
                     Log.e(TAG, "IO Exception from trying to bind socket:", e);
                 }
 
-
+                int ctr = 0;
                 //infinitely get packets from the controller, relay them to the drone via USB, get packet back, and relay that back to the controller over WifiDirect
                 while (true) {
                     try {
                         //this call blocks until it reads in data
                         int amtDataRead = inStream.read(inData);
 
+                        if (amtDataRead==0) {
+                            continue;
+                        }
+
                         //put the packet thru to the drone, getting the ack back
                         usbController.sendBulkTransfer(inData, outData);
 
-                        Log.i(TAG, "Got packet from controller to relay:");
-                        for (byte thisByte : outData) {
-                            Log.i(TAG, String.format("0x%02X", thisByte));
-                        }
+                        /*
+                        //if (ctr == 3) {
+                            Log.i(TAG, "Got packet from controller to relay:");
+                            for (byte thisByte : inData) {
+                                Log.i(TAG, String.format("0x%02X", thisByte));
+                            }
+                            //ctr = -1;
+                        //}*/
 
-                        //send ack to controller
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                buttonDiscover.setText(String.format("%x %x", inData[15], inData[16]));
+                            }
+                        });
+
+
+                        //send ack to controller //TODO: maybe need to wait for controller to confirm ack?
                         outStream.write(outData);
                     }
 
                     catch (IOException e) {
                         e.printStackTrace();
                     }
+                    ctr++;
                 }
 
 

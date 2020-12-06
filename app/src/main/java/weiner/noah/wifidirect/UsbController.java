@@ -200,8 +200,9 @@ public class UsbController {
                     }
                 }
             }
-            Log.d("STARTTHREADS", "Starting data transfer threads...");
 
+
+            //Log.d("STARTTHREADS", "Starting data transfer threads...");
 
 
             //start setting up the USB device in new thread
@@ -387,7 +388,9 @@ public class UsbController {
 
 
     //send packet to drone via USB, and receive Ack back
-    public int sendBulkTransfer(byte[] data, byte[] receiveData){
+    public int sendBulkTransfer(byte[] data, byte[] receiveData) {
+        //Log.i("USBCONTROLLER", "sendBulkTransfer...");
+
         int returnCode = -1;
 
         //make sure we have a valid connection
@@ -397,6 +400,7 @@ public class UsbController {
 
             //receive the Ack
             returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x",receiveData[0]));
         }
         return returnCode;
     }
