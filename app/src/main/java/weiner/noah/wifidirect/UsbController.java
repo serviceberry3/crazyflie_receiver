@@ -389,6 +389,7 @@ public class UsbController {
 
     //send packet to drone via USB, and receive Ack back
     public int sendBulkTransfer(byte[] data, byte[] receiveData) {
+        long start, end;
         //Log.i("USBCONTROLLER", "sendBulkTransfer...");
 
         int returnCode = -1;
@@ -396,11 +397,14 @@ public class UsbController {
         //make sure we have a valid connection
         if (connection != null) {
             //send the data
+            start = System.currentTimeMillis();
             connection.bulkTransfer(out, data, data.length, TRANSFER_TIMEOUT);
 
             //receive the Ack
             returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
-            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x",receiveData[0]));
+            end = System.currentTimeMillis();
+            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x, in %d ms",receiveData[0],
+                    end -start));
         }
         return returnCode;
     }
