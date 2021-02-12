@@ -147,7 +147,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-
         listView = (ListView) findViewById(R.id.listView);
 
         aa = new ArrayAdapter<WifiP2pDevice>(this, android.R.layout.simple_list_item_1, deviceList);
@@ -504,8 +503,9 @@ public class MainActivity extends AppCompatActivity {
                 bytes[0] = 0x30;
 
                 //get packet from controller to be relayed
-                final byte[] inData = new byte[17];
-                byte[] outData = new byte[17];
+                final byte[] inData = new byte[18]; //CommanderPackets will be 15 bytes (14 data, 1 header),
+                                                    // HeightHoldPkts will be 18 bytes (16 data, 1 type, 1 header)
+                byte[] outData = new byte[18];
 
                 //create a client socket and connect it to the server
                 Socket socket = new Socket();
@@ -522,15 +522,6 @@ public class MainActivity extends AppCompatActivity {
                     //get input and output streams for the socket
                     outStream = socket.getOutputStream();
                     inStream = socket.getInputStream();
-
-                    //COMMS TEST
-                    /*
-                    Log.i(TAG, "Client: sending 48 to server...");
-
-                    //ping the server test
-                    outStream.write(48);
-
-                    Log.i(TAG, "Client: data sent to server complete, now reading...");*/
                 }
 
                 catch (IOException e) {
@@ -544,29 +535,22 @@ public class MainActivity extends AppCompatActivity {
                         //this call blocks until it reads in data
                         int amtDataRead = inStream.read(inData);
 
-                        if (amtDataRead==0) {
+                        Log.i(TAG, "amtDataRead is " + amtDataRead);
+                        //if there was no data read in, skip directly to inStream.read() again
+                        if (amtDataRead == 0) {
                             continue;
                         }
 
                         //put the packet thru to the drone, getting the ack back
                         usbController.sendBulkTransfer(inData, outData);
 
-                        /*
-                        //if (ctr == 3) {
-                            Log.i(TAG, "Got packet from controller to relay:");
-                            for (byte thisByte : inData) {
-                                Log.i(TAG, String.format("0x%02X", thisByte));
-                            }
-                            //ctr = -1;
-                        //}*/
+                        Log.i(TAG, String.format("indata len is %d", inData.length));
 
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                buttonDiscover.setText(String.format("%x %x", inData[15], inData[16]));
-                            }
-                        });
-
+                        //Log HeightHold packets
+                        Log.i(TAG, String.format("Got packet from controller to relay: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X" +
+                                " 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X", inData[0], inData[1], inData[2], inData[3],
+                                inData[4], inData[5], inData[6], inData[7], inData[8], inData[9], inData[10], inData[11], inData[12], inData[13],
+                                inData[14], inData[15], inData[16]));
 
                         //send ack to controller //TODO: maybe need to wait for controller to confirm ack?
                         outStream.write(outData);

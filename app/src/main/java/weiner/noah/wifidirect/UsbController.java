@@ -403,8 +403,8 @@ public class UsbController {
             //receive the Ack
             returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
             end = System.currentTimeMillis();
-            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x, in %d ms",receiveData[0],
-                    end -start));
+            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x, in %d ms", receiveData[0],
+                    end - start));
         }
         return returnCode;
     }
