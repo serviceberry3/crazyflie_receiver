@@ -184,7 +184,7 @@ public class UsbController {
             out = null;
 
             //iterate through all USB endpoints on this interface, looking for bulk transfer endpoints
-            for (int i=0; i<usb2serial.getEndpointCount(); i++) {
+            for (int i = 0; i < usb2serial.getEndpointCount(); i++) {
                 UsbEndpoint thisEndpoint = usb2serial.getEndpoint(i);
                 if (thisEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
                     //found bulk endpoint, now distinguish which are read and write points
