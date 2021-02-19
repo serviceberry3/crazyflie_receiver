@@ -1,4 +1,4 @@
-package weiner.noah.wifidirect;
+package weiner.noah.wifidirect.usb;
 
 public interface IUsbConnectionHandler {
     void onUsbStopped();

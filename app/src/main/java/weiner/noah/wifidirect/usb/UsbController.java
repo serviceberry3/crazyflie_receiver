@@ -1,4 +1,4 @@
-package weiner.noah.wifidirect;
+package weiner.noah.wifidirect.usb;
 
 import android.app.Activity;
 import android.app.PendingIntent;

@@ -1,11 +1,10 @@
-package weiner.noah.wifidirect;
+package weiner.noah.wifidirect.control;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -25,14 +24,12 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetSocketAddress;
@@ -40,7 +37,10 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+
+import weiner.noah.wifidirect.R;
+import weiner.noah.wifidirect.usb.IUsbConnectionHandler;
+import weiner.noah.wifidirect.usb.UsbController;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -51,11 +51,17 @@ public class MainActivity extends AppCompatActivity {
     private TextView tv;
     private Button buttonDiscover;
 
+    //should we relay packets to the drone?
+    private boolean relayOn = true;
+
     IntentFilter peerfilter;
     IntentFilter connectionfilter;
     IntentFilter p2pEnabled;
 
     private Handler handler = new Handler();
+
+    //convenience object for running human following script
+    private HumanFollower mHumanFollower;
 
     //This class provides API for managing Wi-Fi peer-to-peer (Wifi Direct) connectivity. This lets app discover available peers,
     //setup connection to peers and query for list of peers. When a p2p connection is formed over wifi, the device continues
@@ -113,6 +119,8 @@ public class MainActivity extends AppCompatActivity {
 
 
     public UsbController usbController;
+
+    //adjust these as necessary (vendor and product IDs)
     private static final int VID = 0x0483;
     private static final int PID = 0x5740;
 
@@ -131,10 +139,10 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onDeviceNotFound() {
             //stop the controller and set it to null
-            if (usbController!=null) {
+            if (usbController != null) {
                 Log.d("NULL", "Came up not null");
                 //usbController.stop();
-                usbController=null;
+                usbController = null;
             }
             else {
                 Log.e("NULL", "Came up null");
@@ -203,13 +211,6 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-
-
-
-
-
-
-
         //USB SETUP----------------------------------------------------------------------------------------------------------------------------------------
 
         if (usbController == null) {
@@ -218,23 +219,21 @@ public class MainActivity extends AppCompatActivity {
         }
 
 
-
-        //set up the button click listener for list devices
+        //set up the button click listener for 'List Devices' button
         ((Button)findViewById(R.id.buttonListUsbDevices)).setOnClickListener(new View.OnClickListener() {
 
             @Override
             public void onClick(View v) {
-                if (usbController!=null && usbController.error==1) {
+                if (usbController != null && usbController.error == 1) {
                     //if we don't already have controller set up, do it now
                     Log.d("DBUG", "Trying to find devices after none found last time...");
-                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
                 }
                 else {
                     //scrap old controller and "reset" the controller by making new one
                     assert usbController != null;
                     usbController.stop();
-                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
                 }
+                usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
             }
         });
 
@@ -300,13 +299,7 @@ public class MainActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             int state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, WifiP2pManager.WIFI_P2P_STATE_DISABLED);
 
-            if (state == WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
-                buttonDiscover.setEnabled(true);
-            }
-
-            else {
-                buttonDiscover.setEnabled(false);
-            }
+            buttonDiscover.setEnabled(state == WifiP2pManager.WIFI_P2P_STATE_ENABLED);
         }
     };
 
@@ -432,6 +425,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    public void setRelay(boolean relayStatus) {
+        relayOn = relayStatus;
+    }
+
+    public boolean getRelay() {
+        return relayOn;
+    }
 
     public static class becomeServerForPC extends Thread {
         @Override
@@ -495,6 +495,9 @@ public class MainActivity extends AppCompatActivity {
                 int port = 8988;
                 int success = 0;
 
+                //we assume we have a valid UsbController at this point. Use it to instantiate our HumanFollower
+                mHumanFollower = new HumanFollower(usbController);
+
                 //create packet of host and port information
                 InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
 
@@ -540,20 +543,46 @@ public class MainActivity extends AppCompatActivity {
                         if (amtDataRead == 0) {
                             continue;
                         }
+                        //if there was one byte read and it wasn't just a NULL packet, it's probably a flag from the controller's Flagger
+                        else if (amtDataRead == 1 && inData[0] != (byte) 0xff) {
+                            //check the received byte
+                            switch (inData[0]) {
+                                case (byte)0x01:
+                                    Log.i(TAG, "Received follow start signal from client app");
 
-                        //put the packet thru to the drone, getting the ack back
-                        usbController.sendBulkTransfer(inData, outData);
+                                    //start up the human follower thread
+                                    mHumanFollower.start();
+                                    break;
+                                case (byte)0x02:
+                                    Log.i(TAG, "Received follow stop signal from client app");
 
-                        Log.i(TAG, String.format("indata len is %d", inData.length));
+                                    //start up the human follower thread
+                                    mHumanFollower.stop();
+                                    break;
+                            }
 
-                        //Log HeightHold packets
-                        Log.i(TAG, String.format("Got packet from controller to relay: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X" +
-                                " 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X", inData[0], inData[1], inData[2], inData[3],
-                                inData[4], inData[5], inData[6], inData[7], inData[8], inData[9], inData[10], inData[11], inData[12], inData[13],
-                                inData[14], inData[15], inData[16]));
+                            //FIXME: how to deal with ack?
+                            //send fake ack back to controller
+                            outStream.write(new byte[] {0x09});
+                        }
 
-                        //send ack to controller //TODO: maybe need to wait for controller to confirm ack?
-                        outStream.write(outData);
+                        //otherwise probably a full packet, so relay it, as long as we currently have relaying turned on
+                        else if (relayOn) {
+                            //put the packet thru to the drone, getting the ack back
+                            usbController.sendBulkTransfer(inData, outData);
+
+                            /*
+                            Log.i(TAG, String.format("indata len is %d", inData.length));
+
+                            //Log HeightHold packets
+                            Log.i(TAG, String.format("Got packet from controller to relay: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X" +
+                                    " 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X", inData[0], inData[1], inData[2], inData[3],
+                                    inData[4], inData[5], inData[6], inData[7], inData[8], inData[9], inData[10], inData[11], inData[12], inData[13],
+                                    inData[14], inData[15], inData[16]));*/
+
+                            //send ack to controller //TODO: maybe need to wait for controller to confirm ack?
+                            outStream.write(outData);
+                        }
                     }
 
                     catch (IOException e) {
