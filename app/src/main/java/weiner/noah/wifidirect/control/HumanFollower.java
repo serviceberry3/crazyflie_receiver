@@ -2,6 +2,10 @@ package weiner.noah.wifidirect.control;
 
 import android.util.Log;
 
+import org.tensorflow.lite.examples.noah.lib.Device;
+import org.tensorflow.lite.examples.noah.lib.Posenet;
+
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import weiner.noah.wifidirect.crtp.CommanderPacket;
@@ -23,9 +27,11 @@ public class HumanFollower {
     private AtomicBoolean following = new AtomicBoolean(false);
     private AtomicBoolean landing = new AtomicBoolean(false);
 
+    private PosenetStats posenetStats;
 
-    public HumanFollower(UsbController usbController) {
+    public HumanFollower(UsbController usbController, MainActivity mainActivity) {
         this.usbController = usbController;
+        posenetStats = new PosenetStats(new Posenet(mainActivity.getApplicationContext(), "posenet_model.tflite", Device.GPU), mainActivity);
     }
 
     /* Pseudocode
@@ -43,8 +49,10 @@ public class HumanFollower {
     }
 
 
+    //stop following
     public void stop() {
-
+        following.set(false);
+        land();
     }
 
 
@@ -170,60 +178,55 @@ public class HumanFollower {
         private boolean mPaused;
         private boolean mFinished;
 
+        final int[] cnt = {0};
+        int thrust_mult = 1;
+        int thrust_step = 100;
+        int thrust_dstep = 10;
+        int thrust = 3000;
+        int pitch = 0;
+        int roll = 0;
+        int yawrate = 0;
+        final float start_height = 0.05f;
+
         public FollowRunnable() {
             mPauseLock = new Object();
             mPaused = false;
             mFinished = false;
         }
 
+        private void launchSequence() {
+            //UP SEQUENCE
+            while (cnt[0] < 50) {
+                sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
+
+                /*
+                //always check if 'Kill' button has been pressed
+                if (killCheck()) {
+                    return;
+                }*/
+
+                try {
+                    Thread.sleep(50);
+                }
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                    //thread now stops and goes home
+                }
+
+                cnt[0]++;
+            }
+        }
 
 
         public void run() {
-            try {
-                //joystick runnable should already be paused
+            //launch the drone up to TARG_HEIGHT
+            launchSequence();
 
-                Log.i(LOG_TAG, "Landing...");
+            //'landing' should already have been reset to false at this time
+            //FIXME: it makes more sense for resetting 'landing' to false to go here
 
-                final int[] cnt = {0};
-                int thrust_mult = 1;
-                int thrust_step = 100;
-                int thrust_dstep = 10;
-                int thrust = 3000;
-                int pitch = 0;
-                int roll = 0;
-                int yawrate = 0;
-                final float start_height = 0.05f;
+            //at this point, activate Posenet human tracking
 
-                //NOTE: the distance of the ZRanger is not accurate, 1.2 => 1.5m
-
-
-                //UP SEQUENCE
-                while (cnt[0] < 50) {
-                    sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
-
-                    /*
-                    //always check if 'Kill' button has been pressed
-                    if (killCheck()) {
-                        return;
-                    }*/
-
-                    Thread.sleep(50);
-
-                    cnt[0]++;
-                }
-
-                //STOP
-                sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
-
-                //'landing' should already have been reset to false at this time
-                //FIXME: it makes more sense for resetting 'landing' to false to go here
-            }
-
-            //If a kill was requested, stop and resume joystick thread
-            catch (InterruptedException e) {
-                e.printStackTrace();
-                //thread now stops and goes home
-            }
         }
 
     }

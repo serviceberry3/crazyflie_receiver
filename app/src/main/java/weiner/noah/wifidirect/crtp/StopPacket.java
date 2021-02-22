@@ -6,7 +6,7 @@ import java.nio.ByteBuffer;
  * Created by arnaud on 31/03/17.
  */
 
-public class StopPacket extends se.bitcraze.crazyflie.lib.crtp.CrtpPacket {
+public class StopPacket extends CrtpPacket {
 
     public StopPacket() {
         super(0, CrtpPort.COMMANDER_GENERIC);

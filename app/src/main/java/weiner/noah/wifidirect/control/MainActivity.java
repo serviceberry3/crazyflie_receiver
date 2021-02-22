@@ -27,6 +27,12 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.MatOfPoint3f;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,6 +51,9 @@ import weiner.noah.wifidirect.usb.UsbController;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
+
+    public MatOfPoint3f humanModelMat;
+    public MatOfPoint2f humanActualMat;
 
     private ListView listView;
     private ArrayAdapter aa;
@@ -496,7 +505,7 @@ public class MainActivity extends AppCompatActivity {
                 int success = 0;
 
                 //we assume we have a valid UsbController at this point. Use it to instantiate our HumanFollower
-                mHumanFollower = new HumanFollower(usbController);
+                mHumanFollower = new HumanFollower(usbController, MainActivity.this);
 
                 //create packet of host and port information
                 InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
@@ -625,11 +634,42 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
 
+        if (!OpenCVLoader.initDebug()) {
+            Log.d("OpenCV", "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_4_0, this, mLoaderCallback);
+        }
+
+        else {
+            Log.d("OpenCV", "OpenCV library found inside package. Using it!");
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+
         //register the broadcast receivers to listen
         registerReceiver(peerDiscoveryReceiver, peerfilter);
         registerReceiver(connectionChangedReceiver, connectionfilter);
         registerReceiver(p2pStatusReceiver, p2pEnabled);
     }
+
+    //use this OpenCV loader callback to instantiate Mat objects, otherwise we'll get an error about Mat not being found
+    public BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            Log.i(TAG, "BaseLoaderCallback called!");
+
+            if (status == LoaderCallbackInterface.SUCCESS) {//instantiate everything we need from OpenCV
+                //everything succeeded
+                Log.i(TAG, "OpenCV loaded successfully, everything created");
+
+                humanModelMat = new MatOfPoint3f();
+
+                humanActualMat = new MatOfPoint2f();
+            }
+
+            else {
+                super.onManagerConnected(status);
+            }
+        }
+    };
 
     //the list of p2p devices found
     private List<WifiP2pDevice> deviceList = new ArrayList<>();

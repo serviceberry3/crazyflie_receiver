@@ -79,8 +79,8 @@ public class ConsolePacket extends CrtpPacket {
      * @param payload the data (must not include the CRTP header)
      * @return parsed console packet
      */
-    public static se.bitcraze.crazyflie.lib.crtp.ConsolePacket parse(byte[] payload) {
-        return new se.bitcraze.crazyflie.lib.crtp.ConsolePacket(new String(payload, CHARSET));
+    public static ConsolePacket parse(byte[] payload) {
+        return new ConsolePacket(new String(payload, CHARSET));
     }
 
     @Override

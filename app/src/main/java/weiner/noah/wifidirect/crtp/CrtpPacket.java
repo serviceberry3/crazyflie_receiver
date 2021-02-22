@@ -31,7 +31,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 
-import se.bitcraze.crazyfliecontrol2.Signal;
 
 /**
  * Packet of data which can be sent/received from/to the Crazyflie. All packet
@@ -48,7 +47,7 @@ public class CrtpPacket {
     /**
      * NULL packet. Header is 0xFF without any data.
      */
-    public static final se.bitcraze.crazyflie.lib.crtp.CrtpPacket NULL_PACKET = new se.bitcraze.crazyflie.lib.crtp.CrtpPacket((byte) 0xff, new byte[0]) {
+    public static final CrtpPacket NULL_PACKET = new CrtpPacket((byte) 0xff, new byte[0]) {
         @Override
         protected void serializeData(ByteBuffer buffer) {
         }
@@ -311,10 +310,10 @@ public class CrtpPacket {
         if (obj == null) {
             return false;
         }
-        if (!(obj instanceof se.bitcraze.crazyflie.lib.crtp.CrtpPacket)) {
+        if (!(obj instanceof CrtpPacket)) {
             return false;
         }
-        se.bitcraze.crazyflie.lib.crtp.CrtpPacket other = (se.bitcraze.crazyflie.lib.crtp.CrtpPacket) obj;
+        CrtpPacket other = (CrtpPacket) obj;
         if (!Arrays.equals(mExpectedReply, other.mExpectedReply)) {
             return false;
         }

@@ -1,2 +1,4 @@
+include ':openCVLibrary341'
+include ':posenet'
 include ':app'
 rootProject.name = "WifiDirect"
