@@ -671,6 +671,14 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    public MatOfPoint3f getHumanModelMat() {
+        return humanModelMat;
+    }
+
+    public MatOfPoint2f getHumanActualMat() {
+        return humanActualMat;
+    }
+
     //the list of p2p devices found
     private List<WifiP2pDevice> deviceList = new ArrayList<>();
 

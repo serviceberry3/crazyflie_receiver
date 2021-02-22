@@ -1,6 +1,12 @@
 package weiner.noah.wifidirect.control;
 
+import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -12,15 +18,19 @@ import android.hardware.Sensor;
 import android.hardware.SensorManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Process;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
@@ -32,8 +42,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.util.Pair;
+import androidx.fragment.app.DialogFragment;
 
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.CvType;
@@ -44,6 +56,7 @@ import org.opencv.core.MatOfPoint3f;
 import org.opencv.core.Point;
 import org.opencv.core.Point3;
 import org.tensorflow.lite.examples.noah.lib.BodyPart;
+import org.tensorflow.lite.examples.noah.lib.Device;
 import org.tensorflow.lite.examples.noah.lib.KeyPoint;
 import org.tensorflow.lite.examples.noah.lib.Person;
 import org.tensorflow.lite.examples.noah.lib.Posenet;
@@ -53,15 +66,24 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
+import weiner.noah.wifidirect.ConfirmationDialog;
 import weiner.noah.wifidirect.Constants;
+import weiner.noah.wifidirect.ErrorDialog;
+import weiner.noah.wifidirect.R;
 import weiner.noah.wifidirect.utils.ImageUtils;
 
 public class PosenetStats {
     private Posenet posenet;
     private MainActivity mainActivity;
     private final String TAG = "PosenetStats";
+
+    private Thread mLiveFeedThread;
+    private PosenetLiveStatFeed posenetLiveStatFeed;
+
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity) {
         this.posenet = posenet;
@@ -70,10 +92,18 @@ public class PosenetStats {
         //On construction, we'd like to launch a background thread which runs Posenet on incoming images from front-facing camera,
         //and allows polling of the data (distance from human, angle of human, etc)
 
+
+    }
+
+    public void start() {
+        mLiveFeedThread = new Thread(new PosenetLiveStatFeed());
+        mLiveFeedThread.start();
     }
 
     private class PosenetLiveStatFeed implements Runnable {
-        /** List of body joints that should be connected.    */
+        /**
+         * List of body joints that should be connected.
+         */
         ArrayList<Pair> bodyJoints = new ArrayList<Pair>(
                 Arrays.asList(new Pair(BodyPart.LEFT_WRIST, BodyPart.LEFT_ELBOW),
                         new Pair(BodyPart.LEFT_ELBOW, BodyPart.LEFT_SHOULDER),
@@ -88,22 +118,29 @@ public class PosenetStats {
                         new Pair(BodyPart.RIGHT_HIP, BodyPart.RIGHT_KNEE),
                         new Pair(BodyPart.RIGHT_KNEE, BodyPart.RIGHT_ANKLE)));
 
-        /** Threshold for confidence score. */
+        /**
+         * Threshold for confidence score.
+         */
         private double minConfidence = 0.5;
 
-        /** Radius of circle used to draw keypoints.  */
+        /**
+         * Radius of circle used to draw keypoints.
+         */
         private float circleRadius = 8.0f;
 
-        /** Paint class holds the style and color information to draw geometries,text and bitmaps. */
+        /**
+         * Paint class holds the style and color information to draw geometries,text and bitmaps.
+         */
         private Paint redPaint = new Paint();
         private Paint bluePaint = new Paint();
         private Paint greenPaint = new Paint();
         private Paint whitePaint = new Paint();
 
-        /** A shape for extracting frame data.   */
+        /**
+         * A shape for extracting frame data.
+         */
         private int PREVIEW_WIDTH = 640;
         private int PREVIEW_HEIGHT = 480;
-        public static final String ARG_MESSAGE = "message";
 
 
         //Macros for 'looking' variable
@@ -120,68 +157,95 @@ public class PosenetStats {
         //Whether to use front- or rear-facing camera
         private final boolean USE_FRONT_CAM = true;
 
-        /** An object for the Posenet library.    */
+        /**
+         * An object for the Posenet library.
+         */
         private Posenet posenet;
 
-        /** ID of the current [CameraDevice].   */
+        /**
+         * ID of the current [CameraDevice].
+         */
         private String cameraId = null; //nullable
 
-        /** A [SurfaceView] for camera preview.   */
-        private SurfaceView surfaceView = null; //nullable
-
-        /** A [CameraCaptureSession] for camera preview.   */
+        /**
+         * A [CameraCaptureSession] for camera preview.
+         */
         private CameraCaptureSession captureSession = null; //nullable
 
-        /** A reference to the opened [CameraDevice].    */
+        /**
+         * A reference to the opened [CameraDevice].
+         */
         private CameraDevice cameraDevice = null; //nullable
 
-        /** The [android.util.Size] of camera preview.  */
+        /**
+         * The [android.util.Size] of camera preview.
+         */
         private Size previewSize = null;
 
-        /** The [android.util.Size.getWidth] of camera preview. */
+        /**
+         * The [android.util.Size.getWidth] of camera preview.
+         */
         private int previewWidth = 0;
 
-        /** The [android.util.Size.getHeight] of camera preview.  */
+        /**
+         * The [android.util.Size.getHeight] of camera preview.
+         */
         private int previewHeight = 0;
 
-        /** A counter to keep count of total frames.  */
+        /**
+         * A counter to keep count of total frames.
+         */
         private int frameCounter = 0;
 
-        /** An IntArray to save image data in ARGB8888 format  */
+        /**
+         * An IntArray to save image data in ARGB8888 format
+         */
         private int[] rgbBytes;
 
-        /** A ByteArray to save image data in YUV format  */
+        /**
+         * A ByteArray to save image data in YUV format
+         */
         private byte[][] yuvBytes = new byte[3][];  //???
 
-        /** An additional thread for running tasks that shouldn't block the UI.   */
+        /**
+         * An additional thread for running tasks that shouldn't block the UI.
+         */
         private HandlerThread backgroundThread = null; //nullable
 
-        /** A [Handler] for running tasks in the background.    */
+        /**
+         * A [Handler] for running tasks in the background.
+         */
         private Handler backgroundHandler = null; //nullable
 
-        /** An [ImageReader] that handles preview frame capture.   */
+        /**
+         * An [ImageReader] that handles preview frame capture.
+         */
         private ImageReader imageReader = null; //nullable
 
-        /** [CaptureRequest.Builder] for the camera preview   */
+        /**
+         * [CaptureRequest.Builder] for the camera preview
+         */
         private CaptureRequest.Builder previewRequestBuilder = null; //nullable
 
-        /** [CaptureRequest] generated by [.previewRequestBuilder   */
+        /**
+         * [CaptureRequest] generated by [.previewRequestBuilder
+         */
         private CaptureRequest previewRequest = null; //nullable
 
-        /** A [Semaphore] to prevent the app from exiting before closing the camera.    */
+        /**
+         * A [Semaphore] to prevent the app from exiting before closing the camera.
+         */
         private Semaphore cameraOpenCloseLock = new Semaphore(1);
 
-        /** Whether the current camera device supports Flash or not.    */
+        /**
+         * Whether the current camera device supports Flash or not.
+         */
         private boolean flashSupported = false;
 
-        /** Orientation of the camera sensor.   */
+        /**
+         * Orientation of the camera sensor.
+         */
         private int sensorOrientation = 0;  //was null. Need Integer?
-
-        /** Abstract interface to someone holding a display surface.    */
-        private SurfaceHolder surfaceHolder; //nullable
-
-        //canvas that displays relevant info on the screen
-        private Canvas infoCanvas;
 
         //NAIVE IMPLEMENTATION ACCEL ARRAYS
 
@@ -280,9 +344,11 @@ public class PosenetStats {
 
         private Point torsoCenter;
 
-        /** [CameraDevice.StateCallback] is called when [CameraDevice] changes its state.   */
+        /**
+         * [CameraDevice.StateCallback] is called when [CameraDevice] changes its state.
+         */
         private class stateCallback extends CameraDevice.StateCallback {
-
+            //when camera has been opened, release the lock and create a preview session for the camera
             @Override
             public void onOpened(@NonNull CameraDevice cameraDevice) {
                 cameraOpenCloseLock.release();
@@ -340,7 +406,7 @@ public class PosenetStats {
 
                 previewRequestBuilder.addTarget(recordingSurface);
 
-                // Here, we create a CameraCaptureSession for camera preview.
+                // Here we create a CameraCaptureSession for camera preview.
                 cameraDevice.createCaptureSession(
                         recordingSurfaces,
                         new CameraCaptureSession.StateCallback() {
@@ -353,7 +419,7 @@ public class PosenetStats {
                                 captureSession = cameraCaptureSession;
 
                                 try {
-                                // Auto focus should be continuous for camera preview.
+                                    // Auto focus should be continuous for camera preview.
                                     previewRequestBuilder.set(
                                             CaptureRequest.CONTROL_AF_MODE,
                                             CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
@@ -364,19 +430,17 @@ public class PosenetStats {
                                     // Finally, we start displaying the camera preview.
                                     previewRequest = previewRequestBuilder.build();
                                     captureSession.setRepeatingRequest(previewRequest, new captureCallback(), backgroundHandler);
-                                }
-                                catch (CameraAccessException e) {
+                                } catch (CameraAccessException e) {
                                     Log.e(TAG, e.toString());
                                 }
                             }
+
                             @Override
                             public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
                                 showToast("Failed");
                             }
                         }, null);
-            }
-
-            catch (CameraAccessException e) {
+            } catch (CameraAccessException e) {
                 Log.e(TAG, e.toString());
             }
         }
@@ -387,7 +451,9 @@ public class PosenetStats {
             }
         }
 
-        /** Fill the yuvBytes with data from image planes.   */
+        /**
+         * Fill the yuvBytes with data from image planes.
+         */
         private void fillBytes(Image.Plane[] planes, byte[][] yuvBytes) {
             // Row stride is the total number of bytes occupied in memory by a row of an image.
             // Because of the variable row stride it's not possible to know in
@@ -406,7 +472,9 @@ public class PosenetStats {
         }
 
 
-        /** A [OnImageAvailableListener] to receive frames as they are available.  */
+        /**
+         * A [OnImageAvailableListener] to receive frames as they are available.
+         */
         private class imageAvailableListener implements ImageReader.OnImageAvailableListener {
             @Override
             public void onImageAvailable(ImageReader imageReader) {
@@ -445,7 +513,7 @@ public class PosenetStats {
                 Mat imageGrab = new Mat();
 
                 //put all of the bytes into the Mat
-                imageGrab.put(0,0, buffer);
+                imageGrab.put(0, 0, buffer);
 
                 ImageUtils imageUtils = new ImageUtils();
 
@@ -496,7 +564,7 @@ public class PosenetStats {
             double focal_length_y = 540.36;
 
             //center of image plane
-            Point center = new Point(313.07,238.39);
+            Point center = new Point(313.07, 238.39);
 
             //Log.i(TAG, String.format("Center at %f, %f", center.x, center.y));
 
@@ -515,7 +583,7 @@ public class PosenetStats {
             cameraMatrix.put(1, 2, 480 / 2f);
              */
 
-                //distortionMat = new MatOfDouble(0,0,0,0);
+            //distortionMat = new MatOfDouble(0,0,0,0);
 
             /*
             cameraMatrix.put(0, 0, 400);
@@ -526,40 +594,41 @@ public class PosenetStats {
 
             //assume no camera distortion
             distortionMat = new MatOfDouble(new Mat(4, 1, CvType.CV_64FC1));
-            distortionMat.put(0,0,0);
-            distortionMat.put(1,0,0);
-            distortionMat.put(2,0,0);
-            distortionMat.put(3,0,0);
+            distortionMat.put(0, 0, 0);
+            distortionMat.put(1, 0, 0);
+            distortionMat.put(2, 0, 0);
+            distortionMat.put(3, 0, 0);
 
             //new mat objects to store rotation and translation matrices from camera coords to world coords when solvePnp runs
             rotationMat = new Mat(1, 3, CvType.CV_64FC1);
             translationMat = new Mat(1, 3, CvType.CV_64FC1);
 
             //Hack! initialize transition and rotation matrixes to improve estimation
-            translationMat.put(0,0,-100);
-            translationMat.put(0,0,100);
-            translationMat.put(0,0,1000);
+            translationMat.put(0, 0, -100);
+            translationMat.put(0, 0, 100);
+            translationMat.put(0, 0, 1000);
 
             if (distToLeftEyeX < distToRightEyeX) {
                 //looking at left
-                rotationMat.put(0,0,-1.0);
-                rotationMat.put(1,0,-0.75);
-                rotationMat.put(2,0,-3.0);
+                rotationMat.put(0, 0, -1.0);
+                rotationMat.put(1, 0, -0.75);
+                rotationMat.put(2, 0, -3.0);
                 looking = LOOKING_LEFT;
-            }
-            else {
+            } else {
                 //looking at right
-                rotationMat.put(0,0,1.0);
-                rotationMat.put(1,0,-0.75);
-                rotationMat.put(2,0,-3.0);
+                rotationMat.put(0, 0, 1.0);
+                rotationMat.put(1, 0, -0.75);
+                rotationMat.put(2, 0, -3.0);
                 looking = LOOKING_RIGHT;
             }
 
         }
 
-        /** Crop Bitmap to maintain aspect ratio of model input. */
+        /**
+         * Crop Bitmap to maintain aspect ratio of model input.
+         */
         private Bitmap cropBitmap(Bitmap bitmap) {
-            float bitmapRatio = (float)bitmap.getHeight() / bitmap.getWidth();
+            float bitmapRatio = (float) bitmap.getHeight() / bitmap.getWidth();
 
             float modelInputRatio = (float) Constants.MODEL_HEIGHT / Constants.MODEL_WIDTH;
 
@@ -572,17 +641,15 @@ public class PosenetStats {
             // Checks if the bitmap has similar aspect ratio as the required model input.
             if (Math.abs(modelInputRatio - bitmapRatio) < maxDifference) {
                 return croppedBitmap;
-            }
-            else if (modelInputRatio < bitmapRatio) {
+            } else if (modelInputRatio < bitmapRatio) {
                 // New image is taller so we are height constrained.
-                float cropHeight = bitmap.getHeight() - ((float)bitmap.getWidth() / modelInputRatio);
+                float cropHeight = bitmap.getHeight() - ((float) bitmap.getWidth() / modelInputRatio);
 
-                croppedBitmap = Bitmap.createBitmap(bitmap, 0, (int)(cropHeight / 2), bitmap.getWidth(), (int)(bitmap.getHeight() - cropHeight));
-            }
-            else {
-                float cropWidth = bitmap.getWidth() - ((float)bitmap.getHeight() * modelInputRatio);
+                croppedBitmap = Bitmap.createBitmap(bitmap, 0, (int) (cropHeight / 2), bitmap.getWidth(), (int) (bitmap.getHeight() - cropHeight));
+            } else {
+                float cropWidth = bitmap.getWidth() - ((float) bitmap.getHeight() * modelInputRatio);
 
-                croppedBitmap = Bitmap.createBitmap(bitmap, (int)(cropWidth / 2), 0, (int)(bitmap.getWidth() - cropWidth), bitmap.getHeight());
+                croppedBitmap = Bitmap.createBitmap(bitmap, (int) (cropWidth / 2), 0, (int) (bitmap.getWidth() - cropWidth), bitmap.getHeight());
             }
 
             Mat croppedImage = new Mat();
@@ -626,16 +693,7 @@ public class PosenetStats {
             //Perform inference.
             Person person = posenet.estimateSinglePose(scaledBitmap);
 
-            Canvas canvas = surfaceHolder.lockCanvas();
-
-            /*
-            if (canvas == null) {
-                    Log.e("DEBUG", "processImage: canvas came up NULL");
-                    return;
-            }
-            */
-
-            draw(canvas, person, scaledBitmap);
+            draw(person, scaledBitmap);
 
             //displacementOnly(person, canvas);
         }
@@ -643,16 +701,13 @@ public class PosenetStats {
         private int noseFound = 0;
         private float noseOriginX, noseOriginY, lastNosePosX, lastNosePosY;
 
-        /** Draw bitmap on Canvas. */
+        /**
+         * Draw bitmap on Canvas.
+         */
         //the Canvas class holds the draw() calls. To draw something, you need 4 basic components: A Bitmap to hold the pixels,
         // a Canvas to host the draw calls (writing into the bitmap),
         // a drawing primitive (e.g. Rect, Path, text, Bitmap), and a paint (to describe the colors and styles for the drawing).
-        private void draw(Canvas canvas, Person person, Bitmap bitmap) { //NOTE: the Bitmap passed here is 257x257 pixels, good for Posenet model
-            //save canvas into a global
-            infoCanvas = canvas;
-
-            //draw clear nothing color to the screen (needs this to clear out the old text and stuff)
-            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+        private void draw(Person person, Bitmap bitmap) { //NOTE: the Bitmap passed here is 257x257 pixels, good for Posenet model
 
             //Draw `bitmap` and `person` in square canvas.
             int screenWidth, screenHeight, left, right, top, bottom, canvasHeight, canvasWidth;
@@ -665,40 +720,6 @@ public class PosenetStats {
             BodyPart currentPart;
             Position leftEye = null, rightEye = null;
 
-            //get the dimensions of our drawing canvas
-            canvasHeight = canvas.getHeight();
-            canvasWidth = canvas.getWidth();
-
-            //should be 1080 x 2148 (full screen besides navigation bar)
-            Log.i(TAG, String.format("Canvas width and height are %d and %d", canvasWidth, canvasHeight));
-
-            //check screen orientation: if portrait mode, set the camera preview square appropriately
-            if (canvasHeight > canvasWidth) {
-                screenWidth = canvasWidth;
-                screenHeight = canvasWidth; //screenwidth x screenHeight should now be 1080 x 1080
-                left = 0;
-
-                //we can find the top of the camera preview square by finding width of the padding on top and bottom of the square
-                //the total amt of padding will be the canvasHeight (2148) minus the heigt of camera preview box, then divide by 2 to get
-                //amt we need to go down from top of screen to find top of camera preview square
-                top = (canvasHeight - canvasWidth) / 2; //should be 534
-            }
-
-            //otherwise if landscape mode, set the width and height of the camera preview square appropriately
-            else {
-                screenWidth = canvasHeight;
-                screenHeight = canvasHeight;
-                left = (canvasWidth - canvasHeight) / 2;
-                top = 0;
-            }
-
-            Log.i(TAG, "Left is " + left);
-
-            //right is right edge of screen if portrait mode; otherwise it's in middle of screen
-            right = left + screenWidth; //should be 1080
-
-            //find bottom of the camera preview square
-            bottom = top + screenHeight; //should be 534 + 1080 = 1614
 
 
             int bmWidth = bitmap.getWidth(); //should be 257
@@ -706,36 +727,6 @@ public class PosenetStats {
 
             Log.i(TAG, String.format("Bitmap width and height are %d and %d", bmWidth, bmHeight)); //should be 257x257
 
-            //WHAT IS PT OF THIS??
-            int newRectWidth = right - left;
-            int newRectHeight = bottom - top;
-
-            double scaleDownRatioVert = newRectHeight / 2280f;
-            double scaleDownRatioHoriz = newRectWidth / 1080f;
-
-            Log.i(TAG, String.format("New rect width and height are %d and %d", newRectWidth, newRectHeight));
-            Log.i(TAG, String.format("Scaledown ratios are %f and %f", scaleDownRatioHoriz, scaleDownRatioVert));
-
-            //draw the camera preview square bitmap on the screen
-            //Android fxn documentation: Draw the specified bitmap, scaling/translating automatically to fill the destination rectangle.
-            //*If the source rectangle is not null, it specifies the subset of the bitmap to draw.
-            //This function ignores the density associated with the bitmap. This is because the source and destination rectangle
-            // coordinate spaces are in their respective densities, so must already have the appropriate scaling factor applied.
-            canvas.drawBitmap(bitmap, /*src*/new Rect(0, 0, bmWidth, bmHeight), //in other words draw whole bitmap
-                    /*dest*/new Rect(left, top, right, bottom), redPaint);
-
-
-            //Next need to calculate ratios used to scale image back up from the 257x257 passed to PoseNet to the actual display
-
-            //divide the available screen width pixels by PoseNet's required number of width pixels to get the number of real screen pixels
-            //widthwise per posenet input image "pixel"
-            float widthRatio = (float) screenWidth / Constants.MODEL_WIDTH; //should be 1080/257
-
-            //divide the available screen height pixels by PoseNet's required number of height pixels to get number of real screen pixels
-            //heightwise per posenet input image "pixel"
-            float heightRatio = (float) screenHeight / Constants.MODEL_HEIGHT; //should be 1080/257
-
-            Log.i(TAG, "Widthratio is " + widthRatio + ", heightRatio is " + heightRatio);
 
             //get the keypoints list ONCE at the beginning
             List<KeyPoint> keyPoints = person.getKeyPoints();
@@ -753,10 +744,6 @@ public class PosenetStats {
                     xValue = (float) position.getX();
                     yValue = (float) position.getY();
 
-                    //the real x value for this body part dot should be the xValue PoseNet found in its 257x257 input bitmap multiplied
-                    //by the number of real Android display (or at least Canvas) pixels per Posenet input bitmap pixel
-                    float adjustedX = (float) xValue * widthRatio + left; //x value adjusted for actual Android display
-                    float adjustedY = (float) yValue * heightRatio + top; //y value adjusted for actual Android display
 
                     //I'll start by just using the person's nose to try to estimate how fast the phone is moving
                     if (currentPart == BodyPart.NOSE) {
@@ -775,51 +762,46 @@ public class PosenetStats {
                                         computeDisplacement(adjustedX, adjustedY);
                                 }
                                 */
-                    }
-                    else if (currentPart == BodyPart.LEFT_EYE) {
+                    } else if (currentPart == BodyPart.LEFT_EYE) {
                         //add nose to first slot of Point array for pose estimation
                         humanActualRaw[2] = new Point(xValue, yValue);
 
                         //add x val of left eye to bbox array
-                        boundingBox[1] = new Point(adjustedX, adjustedY);
+                        boundingBox[1] = new Point(xValue, yValue);
 
 
                         leftEyeFound = 1;
-                        leftEye = new Position(adjustedX, adjustedY);
+                        leftEye = new Position(xValue, yValue);
 
                         //if we've also already found right eye, we have both eyes. Send data to the scale computer
                         if (rightEyeFound == 1) {
                             dist = computeScale(leftEye, rightEye);
                         }
-                    }
-                    else if (currentPart == BodyPart.RIGHT_EYE) {
+                    } else if (currentPart == BodyPart.RIGHT_EYE) {
                         //add nose to first slot of Point array for pose estimation
                         humanActualRaw[3] = new Point(xValue, yValue);
 
                         //add x val of rt eye to bbox array
-                        boundingBox[0] = new Point(adjustedX, adjustedY);
+                        boundingBox[0] = new Point(xValue, yValue);
 
                         rightEyeFound = 1;
-                        rightEye = new Position(adjustedX, adjustedY);
+                        rightEye = new Position(xValue, yValue);
 
                         //if we've also already found left eye, we have both eyes. Send data to the scale computer
                         if (leftEyeFound == 1) {
                             dist = computeScale(leftEye, rightEye);
                         }
 
-                    }
-
-                    else if (currentPart == BodyPart.RIGHT_SHOULDER) {
+                    } else if (currentPart == BodyPart.RIGHT_SHOULDER) {
                         //add rt shoulder to fifth slot of Point array for pose estimation
                         humanActualRaw[4] = new Point(xValue, yValue);
 
-                        boundingBox[2] = new Point(adjustedX, adjustedY);
-                    }
-                    else if (currentPart == BodyPart.LEFT_SHOULDER) {
+                        boundingBox[2] = new Point(xValue, yValue);
+                    } else if (currentPart == BodyPart.LEFT_SHOULDER) {
                         //add left shoulder to sixth slot of Point array for pose estimation
                         humanActualRaw[5] = new Point(xValue, yValue);
 
-                        boundingBox[3] = new Point(adjustedX, adjustedY);
+                        boundingBox[3] = new Point(xValue, yValue);
                     }
 
 
@@ -864,8 +846,7 @@ public class PosenetStats {
             if (humanActualRaw[0] != null && humanActualRaw[1] != null && humanActualRaw[2] != null && humanActualRaw[3] != null
                     && humanActualRaw[4] != null && humanActualRaw[5] != null
                 //&& frameCounter==3
-            )
-            {
+            ) {
                 //DRAW BOUNDING BOX
                 //top is aligned with uppermost eye
                 double bbox_top = Math.max(humanActualRaw[3].y, humanActualRaw[2].y);
@@ -880,15 +861,11 @@ public class PosenetStats {
                 double bbox_bot = Math.min(humanActualRaw[4].y, humanActualRaw[5].y);
 
 
-                canvas.drawRect(new Rect((int)boundingBox[2].x, (int)Math.min(boundingBox[0].y, boundingBox[1].y),
-                        (int)boundingBox[3].x, (int)Math.max(boundingBox[2].y, boundingBox[3].y)), whitePaint);
+                distToLeftEyeX = (float) Math.abs(humanActualRaw[2].x - humanActualRaw[0].x);
+                distToRightEyeX = (float) Math.abs(humanActualRaw[3].x - humanActualRaw[0].x);
 
-
-                distToLeftEyeX = (float)Math.abs(humanActualRaw[2].x - humanActualRaw[0].x);
-                distToRightEyeX = (float)Math.abs(humanActualRaw[3].x - humanActualRaw[0].x);
-
-                distToLeftEyeX = (float)Math.abs(humanActualRaw[5].x - humanActualRaw[0].x);
-                distToRightEyeX = (float)Math.abs(humanActualRaw[4].x - humanActualRaw[0].x);
+                distToLeftEyeX = (float) Math.abs(humanActualRaw[5].x - humanActualRaw[0].x);
+                distToRightEyeX = (float) Math.abs(humanActualRaw[4].x - humanActualRaw[0].x);
 
 
                 //correction for axis flipping
@@ -918,9 +895,6 @@ public class PosenetStats {
                 torsoCenter = new Point(torsoCtrX, torsoCtrY);
                 //torsoCenter = new Point((rt_should.x + left_should.x)/2, (rt_should.y + left_should.y)/2);
                 //humanActualRaw[0] = torsoCenter;
-
-                //draw the point corresponding to the chest
-                canvas.drawCircle(torsoCtrX, torsoCtrY, circleRadius, redPaint);
 
                 //clear out the ArrayList
                 humanActualList.clear();
@@ -971,23 +945,10 @@ public class PosenetStats {
                 Log.i(TAG, String.format("Resulting imagepts Mat is of size %d x %d", imagePts.rows(), imagePts.cols()));
 
                 //extract the 3 2D coordinates for drawing the 3D axes
-                double[] x_ax = imagePts.get(0,0);
-                double[] y_ax = imagePts.get(1,0);
-                double[] z_ax = imagePts.get(2,0);
+                double[] x_ax = imagePts.get(0, 0);
+                double[] y_ax = imagePts.get(1, 0);
+                double[] z_ax = imagePts.get(2, 0);
 
-                //we need to change the points found so that they map correctly into the square Canvas on the screen (basically we're
-                //scaling up the pts from the original 257x257 bitmap to the 1080x1080 image preview box we now have on screen
-                x_ax[0] = x_ax[0] * widthRatio + left;
-                x_ax[1] = x_ax[1] * heightRatio + top;
-
-                y_ax[0] = y_ax[0] * widthRatio + left;
-                y_ax[1] = y_ax[1] * heightRatio + top;
-
-                z_ax[0] = z_ax[0] * widthRatio + left;
-                z_ax[1] = z_ax[1] * heightRatio + top;
-
-                torsoCenter.x = torsoCenter.x * widthRatio + left;
-                torsoCenter.y = torsoCenter.y * heightRatio + top;
 
                 Log.i(TAG, String.format("Found point %f, %f for x axis", x_ax[0], x_ax[1]));
                 Log.i(TAG, String.format("Found point %f, %f for y axis", y_ax[0], y_ax[1]));
@@ -999,13 +960,6 @@ public class PosenetStats {
                         //check for illogical axes layout
                         || (looking == LOOKING_LEFT && z_ax[0] < y_ax[0]) || (looking == LOOKING_RIGHT && z_ax[0] > y_ax[0]))) {
 
-                    //draw the projected 3D axes onto the canvas
-                    canvas.drawLine((float) torsoCenter.x, (float) torsoCenter.y,
-                            (float) x_ax[0], (float) x_ax[1], bluePaint);
-                    canvas.drawLine((float) torsoCenter.x, (float) torsoCenter.y,
-                            (float) y_ax[0], (float) y_ax[1], greenPaint);
-                    canvas.drawLine((float) torsoCenter.x, (float) torsoCenter.y,
-                            (float) z_ax[0], (float) z_ax[1], redPaint);
 
                     //estimate angles for yaw and pitch of the human's upper body
 
@@ -1017,7 +971,7 @@ public class PosenetStats {
                     Log.i(TAG, "z ax[0] is " + z_ax[0]);
                     Log.i(TAG, "torsoCenter.x is ");
                     //we know length of z axis to be 81.25. Let's find length of 'opposite' side of the rt triangle so that we can use sine to find angle
-                    float lenOpposite = (float) z_ax[0] - (float)torsoCenter.x;
+                    float lenOpposite = (float) z_ax[0] - (float) torsoCenter.x;
                     Log.i(TAG, "Len opposite is " + lenOpposite);
 
                     float humAngle = getHumAnglesTrig(lenOpposite, 135f); //81.25?
@@ -1029,21 +983,17 @@ public class PosenetStats {
                     //pitch, yaw, roll
                     //double[] angles = eulerAngles.get(0,0);
 
-                    double[] pitch = rotationMat.get(0,0);
-                    double[] yaw = rotationMat.get(1,0);
+                    double[] pitch = rotationMat.get(0, 0);
+                    double[] yaw = rotationMat.get(1, 0);
 
-                }
-                else {
-                    Log.i(TAG,"Triggered");
+                } else {
+                    Log.i(TAG, "Triggered");
                 }
             }
 
             //reset contents of the arrays
 
             humanActualRaw[0] = humanActualRaw[1] = humanActualRaw[2] = humanActualRaw[3] = humanActualRaw[4] = null;
-
-            //draw/push the Canvas bits to the screen - FINISHED THE CYCLE
-            surfaceHolder.unlockCanvasAndPost(canvas);
 
             //increment framecounter, if at 4 set to 0
             frameCounter++;
@@ -1053,9 +1003,9 @@ public class PosenetStats {
         }
 
         private float getHumAnglesTrig(float opp, float hyp) {
-            Log.i(TAG, "opp/hyp is " + (opp/hyp));
+            Log.i(TAG, "opp/hyp is " + (opp / hyp));
 
-            float ratio = opp/hyp;
+            float ratio = opp / hyp;
 
             if (ratio <= -1)
                 return -90f;
@@ -1111,10 +1061,180 @@ public class PosenetStats {
                 });
         }
 
+        private void requestCameraPermission() {
+            if (mainActivity.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+                ConfirmationDialog confirmationDialog = new ConfirmationDialog();
+                confirmationDialog.show(mainActivity.getSupportFragmentManager(), FRAGMENT_DIALOG);
+            } else {
+                String[] camera = {Manifest.permission.CAMERA};
+                mainActivity.requestPermissions(camera, Constants.REQUEST_CAMERA_PERMISSION);
+            }
+        }
+
+        /**
+         * Sets up member variables related to camera.
+         */
+        private void setUpCameraOutputs() {
+            CameraManager cameraManager = (CameraManager) mainActivity.getSystemService(Context.CAMERA_SERVICE);
+
+            try {
+                for (String cameraId : cameraManager.getCameraIdList()) {
+                    CameraCharacteristics cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraId);
+
+                    //don't use front facing camera in this example
+                    Integer cameraDirection = cameraCharacteristics.get(CameraCharacteristics.LENS_FACING);
+
+                    if (USE_FRONT_CAM && cameraDirection != null && cameraDirection == CameraCharacteristics.LENS_FACING_BACK) {
+                        //skip this one because it's a back-facing camera, we wanna use the front-facing
+                        continue;
+                    } else if (!USE_FRONT_CAM && cameraDirection != null && cameraDirection == CameraCharacteristics.LENS_FACING_FRONT) {
+                        //skip this one because it's front-facing cam, we wanna use the rear-facing
+                        continue;
+                    }
+
+                    previewSize = new Size(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+
+                    imageReader = ImageReader.newInstance(PREVIEW_WIDTH, PREVIEW_HEIGHT, ImageFormat.YUV_420_888, 2);
+
+                    try {
+                        //get current orientation of camera sensor
+                        sensorOrientation = cameraCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                    }
+                    catch (NullPointerException e) {
+                        e.printStackTrace();
+                    }
+
+                    previewHeight = previewSize.getHeight();
+                    previewWidth = previewSize.getWidth();
+
+                    rgbBytes = new int[previewWidth * previewHeight];
+
+                    flashSupported = cameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+
+                    this.cameraId = cameraId;
+
+                    //we've now found a usable back camera and finished setting up member variables, so don't need to keep iterating
+                    return;
+
+                }
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            } catch (NullPointerException e) {
+                //NPE thrown when Camera2API is used but not supported on the device
+                ErrorDialog.newInstance(mainActivity.getString(R.string.camera_error)).show(mainActivity.getSupportFragmentManager(), FRAGMENT_DIALOG);
+            }
+        }
+
+
+        /**
+         * Opens the camera specified by [PosenetActivity.cameraId].
+         */
+        private void openCamera() {
+            int permissionCamera = Objects.requireNonNull(mainActivity.getApplicationContext()).checkPermission(Manifest.permission.CAMERA, Process.myPid(), Process.myUid());
+
+            //make sure we have camera permission
+            if (permissionCamera != PackageManager.PERMISSION_GRANTED) {
+                //still need permission to access camera, so get it now
+                requestCameraPermission();
+            }
+
+            //find and set up the camera
+            setUpCameraOutputs();
+
+            CameraManager cameraManager = (CameraManager) mainActivity.getSystemService(Context.CAMERA_SERVICE);
+
+            try {
+                // Wait for camera to open - 2.5 seconds is sufficient
+                if (!cameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
+                    throw new RuntimeException("Time out waiting to lock camera opening.");
+                }
+
+                cameraManager.openCamera(cameraId, new stateCallback(), backgroundHandler);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                throw new RuntimeException("Interrupted while trying to lock camera opening.");
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
+
+        }
+
+        /**
+         * Closes the current [CameraDevice].
+         */
+        private void closeCamera() {
+            if (captureSession == null) {
+                return;
+            }
+
+            try {
+                cameraOpenCloseLock.acquire();
+                captureSession.close();
+                captureSession = null;
+                cameraDevice.close();
+                cameraDevice = null;
+                imageReader.close();
+                imageReader = null;
+            } catch (InterruptedException e) {
+                throw new RuntimeException("Interrupted while trying to lock camera closing.", e);
+            }
+
+            //Java finally block is always executed whether exception occurs or not and is handled or not
+            //often used for important cleanup code that MUST be executed
+            finally {
+                cameraOpenCloseLock.release();
+            }
+        }
+
         //ENTRY POINT OF THREAD
         @Override
         public void run() {
+            //get the Mats created AFTER OpenCV was loaded successfully
+            humanModelMat = mainActivity.getHumanModelMat();
+            humanActualMat = mainActivity.getHumanActualMat();
 
+
+            //these are the 3d pts we'd like to draw: essentially projecting a 3D axis magnitude 1000 onto 2D image in middle of person's chest
+            testPts[0] = new Point3(1000.0, -1087.5, -918.75);
+            testPts[1] = new Point3(0, 2087.5, -918.75);
+            testPts[2] = new Point3(0, -1087.5, 81.25);
+
+            testPtList.add(testPts[0]);
+            testPtList.add(testPts[1]);
+            testPtList.add(testPts[2]);
+
+            /*
+            //populate the 3D human model
+            humanModelRaw[0] = new Point3(0.0f, 0.0f, 0.0f); //nose
+            humanModelRaw[1] = new Point3(0.0f, 0.0f, 0.0f); //nose again
+            humanModelRaw[2] = new Point3(-215.0f, 170.0f, -135.0f); //left eye ctr WAS -150
+            humanModelRaw[3] = new Point3(215.0f, 170.0f, -135.0f); //rt eye ctr
+
+            //humanModelRaw[3] = new Point3(450.0f, -700.0f, -600.0f); //rt shoulder
+            //humanModelRaw[4] = new Point3(-450.0f, -700.0f, -600.0f); //left shoulder
+             */
+
+
+            //from real measured coords
+            humanModelRaw[0] = new Point3(0.0f, 0.0f, 0.0f); //nose
+            humanModelRaw[1] = new Point3(0.0f, 0.0f, 0.0f); //nose
+            humanModelRaw[2] = new Point3(-225.0f, 318.75f, -262.5f); //left eye ctr
+            humanModelRaw[3] = new Point3(225.0f, 318.75f, -262.5f); //right eye ctr WAS -150
+            humanModelRaw[4] = new Point3(-871.875f, -1087.5f, -918.75f); //rt shoulder 450, -700, -600
+            humanModelRaw[5] = new Point3(871.875f, -1087.5f, -918.75f); //left shoulder -450, -700, -600
+
+            //push all of the model coordinates into the ArrayList version so they can be converted to a MatofPoint3f
+            humanModelList.add(humanModelRaw[0]);
+            humanModelList.add(humanModelRaw[1]);
+            humanModelList.add(humanModelRaw[2]);
+            humanModelList.add(humanModelRaw[3]);
+            humanModelList.add(humanModelRaw[4]);
+            humanModelList.add(humanModelRaw[5]);
+
+            humanModelMat.fromList(humanModelList);
+
+            showToast("PosenetStatsLiveFeed calling openCamera()!");
+            openCamera();
         }
     }
 }

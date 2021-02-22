@@ -226,7 +226,7 @@ public class HumanFollower {
             //FIXME: it makes more sense for resetting 'landing' to false to go here
 
             //at this point, activate Posenet human tracking
-
+            posenetStats.start();
         }
 
     }
