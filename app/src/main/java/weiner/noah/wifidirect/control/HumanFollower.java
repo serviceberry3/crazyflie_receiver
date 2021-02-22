@@ -26,6 +26,7 @@ public class HumanFollower {
 
     private AtomicBoolean following = new AtomicBoolean(false);
     private AtomicBoolean landing = new AtomicBoolean(false);
+    private AtomicBoolean kill = new AtomicBoolean(false);
 
     private PosenetStats posenetStats;
 
@@ -41,6 +42,8 @@ public class HumanFollower {
      *  - When stop is called, stop monitoring Posenet, and safely land the drone, wherever it currently is.
      * */
     public void start() {
+        Log.i(LOG_TAG, "HumanFollower start() called!");
+
         //set 'following' AtomicBool to true
         following.set(true);
 
@@ -72,6 +75,56 @@ public class HumanFollower {
             //reset the landing and hovering AtomicBools to false ('landing' shouldn't need to be used again)
             landing.set(false); following.set(false);
 
+            return true;
+        }
+
+        return false;
+    }
+
+    /*Want killing to happen as fast as possible. That means If the launch thread is sleeping, interrupt it. It is undefined whether one of the below *Thread.interrupt()s
+    will execute the kill, or whether one of the killChecks() in the background thread will execute it.
+
+    One of two things happens when kill() is called:
+    1. The background thread that's running a flight sequence is currently sending a packet or waiting for the ack
+            - In this case, a killCheck() will be performed by the thread within a couple milliseconds, at which point the thread will queue some stop packets, resume the
+              joystick thread, and exit
+    2. The background thread that's running a flight sequence is currently sleeping
+            - In this case, kill() interrupts the thread, which causes sleep() to throw an InterruptedException. The thread resumes the joystickRunnable thread and exits immediately.
+     */
+
+    //request a kill. Called on pressing "Kill (USB)" button
+    public void kill() {
+        Log.i(LOG_TAG, "Kill requested");
+
+        //atomically set kill to true
+        kill.set(true);
+
+
+        //if following, interrupt the follow thread immediately (if the Thread is sleeping, this will throw exception to end it)
+        if (following.get())
+            mFollowThread.interrupt();
+
+        //if landing, interrupt the hover thread immediately (if the Thread is sleeping, this will throw exception to end it)
+        if (landing.get())
+            mLandingThread.interrupt();
+    }
+
+    //check if user has requested kill. If so, kill the drone
+    public boolean killCheck() {
+        if (kill.get()) {
+
+            //send 10 STOP packets to ensure a kill
+            for (int i = 0; i < 10; i++) {
+                sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
+            }
+
+            //reset kill to false, atomically
+            kill.set(false);
+
+            //make sure launching, landing, and hovering are all reset to false
+            landing.set(false); following.set(false);
+
+            //let background thread know to return if necessary
             return true;
         }
 
@@ -118,10 +171,10 @@ public class HumanFollower {
                 while (cnt[0] < 50) {
                     sendPacket(new HeightHoldPacket(0, 0, 0, (-TARG_HEIGHT + start_height) * (cnt[0] / 50.0f) + TARG_HEIGHT));
 
-                    /*
+
                     if (killCheck()) {
                         return;
-                    }*/
+                    }
 
                     Thread.sleep(50);
 
@@ -137,8 +190,9 @@ public class HumanFollower {
                 //FIXME: it makes more sense for resetting 'landing' to false to go here
             }
 
-            //If a kill was requested, stop and resume joystick thread
+            //If a kill was requested, stop now
             catch (InterruptedException e) {
+                kill.set(false);
                 e.printStackTrace();
                 //thread now stops and goes home
             }
@@ -146,7 +200,7 @@ public class HumanFollower {
 
 
         //CONVENIENCE FXNS
-        //pause the thread to stop streaming joystick data to onboard phone so that we can run a navigation sequence, etc.
+        //pause the thread
         public void onPause() {
             synchronized (mPauseLock) {
                 mPaused = true;
@@ -167,7 +221,7 @@ public class HumanFollower {
 
     //send a CRTP packet to the drone, waiting for ack from drone but ignoring it
     private void sendPacket(CrtpPacket packet) {
-        usbController.sendBulkTransfer(packet.toByteArray(), new byte[1]);
+        //usbController.sendBulkTransfer(packet.toByteArray(), new byte[1]);
     }
 
 
@@ -195,6 +249,9 @@ public class HumanFollower {
         }
 
         private void launchSequence() {
+            //Unlock startup thrust protection
+            sendPacket(new CommanderPacket(0, 0, 0, (char) 0));//Unlock startup thrust protection
+
             //UP SEQUENCE
             while (cnt[0] < 50) {
                 sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
@@ -208,8 +265,11 @@ public class HumanFollower {
                 try {
                     Thread.sleep(50);
                 }
+
+                //if interrupted by kill()
                 catch (InterruptedException e) {
                     e.printStackTrace();
+                    following.set(false); kill.set(false);
                     //thread now stops and goes home
                 }
 
@@ -219,14 +279,43 @@ public class HumanFollower {
 
 
         public void run() {
+            Log.i(LOG_TAG, "Running psoenetstats");
             //launch the drone up to TARG_HEIGHT
-            launchSequence();
+            //launchSequence();
 
             //'landing' should already have been reset to false at this time
             //FIXME: it makes more sense for resetting 'landing' to false to go here
 
-            //at this point, activate Posenet human tracking
+            //at this point, activate Posenet human tracking (separate thread)
             posenetStats.start();
+
+            //hover indefinitely
+            while (true) {
+                //HOVER SEQUENCE
+                sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+
+                //Check if a kill has been requested. If so, end this thread.
+                //NOTE: DRONE WILL FALL
+                if (killCheck()) {
+                    return;
+                }
+
+                //Check of a land has been requested. If so, return.
+                if (landCheck()) {
+                    //The landing thread has begun at this point
+                    return;
+                }
+
+                try {
+                    Thread.sleep(100);
+                }
+
+                //if interrupted by kill()
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                    following.set(false); kill.set(false);
+                }
+            }
         }
 
     }

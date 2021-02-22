@@ -218,8 +218,6 @@ public class MainActivity extends AppCompatActivity {
         });
 
 
-
-
         //USB SETUP----------------------------------------------------------------------------------------------------------------------------------------
 
         if (usbController == null) {
@@ -507,6 +505,8 @@ public class MainActivity extends AppCompatActivity {
                 //we assume we have a valid UsbController at this point. Use it to instantiate our HumanFollower
                 mHumanFollower = new HumanFollower(usbController, MainActivity.this);
 
+                mHumanFollower.start();
+
                 //create packet of host and port information
                 InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
 
@@ -565,9 +565,14 @@ public class MainActivity extends AppCompatActivity {
                                 case (byte)0x02:
                                     Log.i(TAG, "Received follow stop signal from client app");
 
-                                    //start up the human follower thread
+                                    //stop human follower thread (land the drone)
                                     mHumanFollower.stop();
                                     break;
+                                case (byte)0x03:
+                                    Log.i(TAG, "Received kill signal from client app");
+
+                                    //kill the drone forcefully, without running landing sequence
+                                    mHumanFollower.kill();
                             }
 
                             //FIXME: how to deal with ack?
@@ -648,6 +653,10 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(peerDiscoveryReceiver, peerfilter);
         registerReceiver(connectionChangedReceiver, connectionfilter);
         registerReceiver(p2pStatusReceiver, p2pEnabled);
+
+        mHumanFollower = new HumanFollower(usbController, MainActivity.this);
+
+        mHumanFollower.start();
     }
 
     //use this OpenCV loader callback to instantiate Mat objects, otherwise we'll get an error about Mat not being found

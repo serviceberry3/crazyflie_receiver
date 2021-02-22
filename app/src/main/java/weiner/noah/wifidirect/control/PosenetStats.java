@@ -30,6 +30,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.Process;
 import android.util.Log;
 import android.util.Size;
@@ -70,6 +71,7 @@ import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
+import weiner.noah.wifidirect.AtomicFloat;
 import weiner.noah.wifidirect.ConfirmationDialog;
 import weiner.noah.wifidirect.Constants;
 import weiner.noah.wifidirect.ErrorDialog;
@@ -84,6 +86,8 @@ public class PosenetStats {
     private Thread mLiveFeedThread;
     private PosenetLiveStatFeed posenetLiveStatFeed;
 
+    private AtomicFloat dist_to_hum = new AtomicFloat();
+
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity) {
         this.posenet = posenet;
@@ -92,12 +96,15 @@ public class PosenetStats {
         //On construction, we'd like to launch a background thread which runs Posenet on incoming images from front-facing camera,
         //and allows polling of the data (distance from human, angle of human, etc)
 
-
     }
 
     public void start() {
         mLiveFeedThread = new Thread(new PosenetLiveStatFeed());
         mLiveFeedThread.start();
+    }
+
+    public float getDistToHum() {
+        return dist_to_hum.get();
     }
 
     private class PosenetLiveStatFeed implements Runnable {
@@ -157,10 +164,6 @@ public class PosenetStats {
         //Whether to use front- or rear-facing camera
         private final boolean USE_FRONT_CAM = true;
 
-        /**
-         * An object for the Posenet library.
-         */
-        private Posenet posenet;
 
         /**
          * ID of the current [CameraDevice].
@@ -351,6 +354,7 @@ public class PosenetStats {
             //when camera has been opened, release the lock and create a preview session for the camera
             @Override
             public void onOpened(@NonNull CameraDevice cameraDevice) {
+                Log.i(TAG, "CAMERA OPENED");
                 cameraOpenCloseLock.release();
                 PosenetLiveStatFeed.this.cameraDevice = cameraDevice;
                 createCameraPreviewSession();
@@ -358,6 +362,7 @@ public class PosenetStats {
 
             @Override
             public void onDisconnected(@NonNull CameraDevice cameraDevice) {
+                Log.i(TAG, "CAMERA DISCONNECTED");
                 cameraOpenCloseLock.release();
                 cameraDevice.close();
                 cameraDevice = null;
@@ -365,6 +370,7 @@ public class PosenetStats {
 
             @Override
             public void onError(@NonNull CameraDevice cameraDevice, int i) {
+                Log.e(TAG, "CAMERA ERROR");
                 onDisconnected(cameraDevice);
                 mainActivity.finish();
             }
@@ -468,6 +474,40 @@ public class PosenetStats {
 
                 //store the raw ByteBuffer of the plane at this location in yuvBytes 2D array
                 buffer.get(yuvBytes[i]);
+            }
+        }
+
+        /**
+         * Starts a background thread and its [Handler].
+         */
+        private void startBackgroundThread() {
+            backgroundThread = new HandlerThread("imageAvailableListener");
+
+            //start up the background thread
+            backgroundThread.start();
+
+            //create a new Handler to post work on the background thread
+            backgroundHandler = new Handler(backgroundThread.getLooper());
+        }
+
+        /**
+         * Stops the background thread and its [Handler].
+         */
+        private void stopBackgroundThread() {
+            if (backgroundThread != null)  {
+                backgroundThread.quitSafely();
+            }
+
+            try {
+                if (backgroundThread!=null) {
+                    //terminate the background thread by joining
+                    backgroundThread.join();
+                }
+                backgroundThread = null;
+                backgroundHandler = null;
+            }
+            catch (InterruptedException e) {
+                Log.e(TAG, e.toString());
             }
         }
 
@@ -721,7 +761,6 @@ public class PosenetStats {
             Position leftEye = null, rightEye = null;
 
 
-
             int bmWidth = bitmap.getWidth(); //should be 257
             int bmHeight = bitmap.getHeight(); //should be 257
 
@@ -776,6 +815,7 @@ public class PosenetStats {
                         //if we've also already found right eye, we have both eyes. Send data to the scale computer
                         if (rightEyeFound == 1) {
                             dist = computeScale(leftEye, rightEye);
+                            dist_to_hum.set(dist);
                         }
                     } else if (currentPart == BodyPart.RIGHT_EYE) {
                         //add nose to first slot of Point array for pose estimation
@@ -790,6 +830,7 @@ public class PosenetStats {
                         //if we've also already found left eye, we have both eyes. Send data to the scale computer
                         if (leftEyeFound == 1) {
                             dist = computeScale(leftEye, rightEye);
+                            dist_to_hum.set(dist);
                         }
 
                     } else if (currentPart == BodyPart.RIGHT_SHOULDER) {
@@ -1075,6 +1116,8 @@ public class PosenetStats {
          * Sets up member variables related to camera.
          */
         private void setUpCameraOutputs() {
+            Log.i(TAG, "setUpCameraOutputs called!");
+
             CameraManager cameraManager = (CameraManager) mainActivity.getSystemService(Context.CAMERA_SERVICE);
 
             try {
@@ -1149,11 +1192,14 @@ public class PosenetStats {
                     throw new RuntimeException("Time out waiting to lock camera opening.");
                 }
 
+                Log.i(TAG, "cameraManager.openCamera()");
                 cameraManager.openCamera(cameraId, new stateCallback(), backgroundHandler);
-            } catch (InterruptedException e) {
+            }
+            catch (InterruptedException e) {
                 e.printStackTrace();
                 throw new RuntimeException("Interrupted while trying to lock camera opening.");
-            } catch (CameraAccessException e) {
+            }
+            catch (CameraAccessException e) {
                 e.printStackTrace();
             }
 
@@ -1189,6 +1235,13 @@ public class PosenetStats {
         //ENTRY POINT OF THREAD
         @Override
         public void run() {
+
+            //Initialize the current thread as a looper.
+            //Looper.prepare();
+
+            startBackgroundThread();
+
+
             //get the Mats created AFTER OpenCV was loaded successfully
             humanModelMat = mainActivity.getHumanModelMat();
             humanActualMat = mainActivity.getHumanActualMat();
