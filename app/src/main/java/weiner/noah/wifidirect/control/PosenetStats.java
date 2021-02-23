@@ -481,12 +481,14 @@ public class PosenetStats {
          * Starts a background thread and its [Handler].
          */
         private void startBackgroundThread() {
+            //A HandlerThread is a Thread that has a Looper
             backgroundThread = new HandlerThread("imageAvailableListener");
 
             //start up the background thread
             backgroundThread.start();
 
-            //create a new Handler to post work on the background thread
+            //create a new Handler using the background thread's Looper to post work on the background thread
+            //This will allow us to handle camera state changes on background thread, since we pass this handler to cameraManager.openCamera()
             backgroundHandler = new Handler(backgroundThread.getLooper());
         }
 
@@ -816,6 +818,7 @@ public class PosenetStats {
                         if (rightEyeFound == 1) {
                             dist = computeScale(leftEye, rightEye);
                             dist_to_hum.set(dist);
+                            Log.i(TAG, "Dist to hum is " + dist_to_hum.get());
                         }
                     } else if (currentPart == BodyPart.RIGHT_EYE) {
                         //add nose to first slot of Point array for pose estimation
@@ -831,6 +834,7 @@ public class PosenetStats {
                         if (leftEyeFound == 1) {
                             dist = computeScale(leftEye, rightEye);
                             dist_to_hum.set(dist);
+                            Log.i(TAG, "Dist to hum is " + dist_to_hum.get());
                         }
 
                     } else if (currentPart == BodyPart.RIGHT_SHOULDER) {
@@ -844,8 +848,6 @@ public class PosenetStats {
 
                         boundingBox[3] = new Point(xValue, yValue);
                     }
-
-
                 }
 
                 /*
@@ -1221,7 +1223,8 @@ public class PosenetStats {
                 cameraDevice = null;
                 imageReader.close();
                 imageReader = null;
-            } catch (InterruptedException e) {
+            }
+            catch (InterruptedException e) {
                 throw new RuntimeException("Interrupted while trying to lock camera closing.", e);
             }
 

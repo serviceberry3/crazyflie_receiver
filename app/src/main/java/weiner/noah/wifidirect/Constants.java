@@ -36,7 +36,12 @@ public class Constants {
 
     //91 cm away -> ~90 pixel pupillary distance.
     //Thus experimental focal len of camera = (P x D) / W = (90px x 0.91m) / 0.063m = 1300
-    public static final float focalLenExp = 1300f;
+    public static final float focalLenExpAdjusted = 1300f;
+
+    //Focal length based on the scaled-down 257x257 image. 30cm away -> ~42 pixel pup distance
+    //Thus experimental focal len of camera = (P x D) / W = (42px x 0.30m) / 0.063m = 200
+    //Or (30px x 0.46m) / 0.063m = 219
+    public static final float focalLenExp = 219f;
 
     //Meanwhile, using opencv chessboard calibration, claimed focal length x is 524.1, y is 523.9
 }
