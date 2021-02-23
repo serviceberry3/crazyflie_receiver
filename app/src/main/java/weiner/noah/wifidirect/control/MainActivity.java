@@ -43,6 +43,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import weiner.noah.wifidirect.R;
 import weiner.noah.wifidirect.usb.IUsbConnectionHandler;
@@ -60,8 +61,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView tv;
     private Button buttonDiscover;
 
-    //should we relay packets to the drone?
-    private boolean relayOn = true;
+    //should we relay packets to the drone? Must be atomic because it's read constantly by main thread, and modified by LandRunnable in HumanFollower
+    private AtomicBoolean relayOn = new AtomicBoolean(true);
 
     IntentFilter peerfilter;
     IntentFilter connectionfilter;
@@ -433,11 +434,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void setRelay(boolean relayStatus) {
-        relayOn = relayStatus;
+        relayOn.set(relayStatus);
     }
 
     public boolean getRelay() {
-        return relayOn;
+        return relayOn.get();
     }
 
     public static class becomeServerForPC extends Thread {
@@ -581,7 +582,7 @@ public class MainActivity extends AppCompatActivity {
                         }
 
                         //otherwise probably a full packet, so relay it, as long as we currently have relaying turned on
-                        else if (relayOn) {
+                        else if (relayOn.get()) {
                             //put the packet thru to the drone, getting the ack back
                             usbController.sendBulkTransfer(inData, outData);
 
@@ -596,6 +597,12 @@ public class MainActivity extends AppCompatActivity {
 
                             //send ack to controller //TODO: maybe need to wait for controller to confirm ack?
                             outStream.write(outData);
+                        }
+                        else {
+                            //regular packet, but relay not allowed
+                            //FIXME: how to deal with ack?
+                            //send fake ack back to controller
+                            outStream.write(new byte[] {0x09});
                         }
                     }
 

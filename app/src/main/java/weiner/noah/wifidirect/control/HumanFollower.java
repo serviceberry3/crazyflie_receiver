@@ -65,9 +65,6 @@ public class HumanFollower {
     public void stop() {
         following.set(false);
         land();
-
-        //re-enable joystick stream
-        mainActivity.setRelay(true);
     }
 
 
@@ -197,6 +194,8 @@ public class HumanFollower {
                 //STOP
                 sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
 
+                //re-enable joystick stream
+                mainActivity.setRelay(true);
 
                 //'landing' should already have been reset to false at this time
                 //FIXME: it makes more sense for resetting 'landing' to false to go here
@@ -273,8 +272,8 @@ public class HumanFollower {
 
             //UP SEQUENCE
             while (cnt[0] < 50) {
-                //sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
-                sendPacket(new CommanderPacket(0, 0, 0, (char) 150001));
+                sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
+                //sendPacket(new CommanderPacket(0, 0, 0, (char) 150001));
 
 
                 //always check if 'Kill' button has been pressed
@@ -289,7 +288,8 @@ public class HumanFollower {
                 //if interrupted by kill()
                 catch (InterruptedException e) {
                     e.printStackTrace();
-                    following.set(false); kill.set(false);
+                    following.set(false);
+                    kill.set(false);
                     //thread now stops and goes home
                 }
 
@@ -306,19 +306,24 @@ public class HumanFollower {
             //launch the drone up to TARG_HEIGHT
             launchSequence();
 
-            /*
+            //move forward test
+            sendPacket(new HeightHoldPacket(1, 0, 0, TARG_HEIGHT));
+
             //'landing' should already have been reset to false at this time
             //FIXME: it makes more sense for resetting 'landing' to false to go here
 
             //at this point, activate Posenet human tracking (separate thread)
-            posenetStats.start();
+            //posenetStats.start();
 
             //hover indefinitely
             while (true) {
                 //get distance from the human
-                float dist_to_hum = posenetStats.getDistToHum();
-                Log.i(LOG_TAG, "From HumFollower: dist to hum is " + dist_to_hum);
+                //float dist_to_hum = posenetStats.getDistToHum();
+                //Log.i(LOG_TAG, "From HumFollower: dist to hum is " + dist_to_hum);
 
+
+                //ONE IMPLEMENTATION
+                /*
                 //we'd like to stay in the distance range 0.4-0.6m
                 if (dist_to_hum == -1.0f || waitOnLock) {
                     //if human not in frame, just hover in place
@@ -356,10 +361,12 @@ public class HumanFollower {
                 //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
                 else {
                     sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
-                }
+                }*/
 
                 //TODO: problem: distance won't be updated fast enough, since Posenet pretty slow. That means should wait several cycles before applying another correction
 
+                //HOVER
+                sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
 
                 //Check if a kill has been requested. If so, end this thread.
                 //NOTE: DRONE WILL FALL
@@ -380,9 +387,11 @@ public class HumanFollower {
                 //if interrupted by kill()
                 catch (InterruptedException e) {
                     e.printStackTrace();
-                    following.set(false); kill.set(false);
-                }*/
+                    following.set(false);
+                    kill.set(false);
+                }
             }
         }
+    }
 
     }
