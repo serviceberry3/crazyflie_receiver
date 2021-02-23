@@ -505,7 +505,7 @@ public class MainActivity extends AppCompatActivity {
                 //we assume we have a valid UsbController at this point. Use it to instantiate our HumanFollower
                 mHumanFollower = new HumanFollower(usbController, MainActivity.this);
 
-                mHumanFollower.start();
+                //mHumanFollower.start();
 
                 //create packet of host and port information
                 InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
@@ -654,9 +654,9 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(connectionChangedReceiver, connectionfilter);
         registerReceiver(p2pStatusReceiver, p2pEnabled);
 
-        mHumanFollower = new HumanFollower(usbController, MainActivity.this);
+        //mHumanFollower = new HumanFollower(usbController, MainActivity.this);
 
-        mHumanFollower.start();
+       // mHumanFollower.start();
     }
 
     //use this OpenCV loader callback to instantiate Mat objects, otherwise we'll get an error about Mat not being found

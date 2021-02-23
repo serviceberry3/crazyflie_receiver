@@ -50,7 +50,8 @@ public class UsbController {
 
     private UsbRequest readingRequest;
 
-    private static int TRANSFER_TIMEOUT = 1000;
+    //make bulktransfer block until receive data
+    private static int TRANSFER_TIMEOUT = 0;
 
     //separate thread for usb data transfer
     private Thread mUsbThread, mReceiveThread;
@@ -74,7 +75,7 @@ public class UsbController {
         VID = vid;
         PID = pid;
         activity = act;
-        error=0;
+        error = 0;
         init();
     }
 
@@ -149,7 +150,7 @@ public class UsbController {
     }
 
     private void openConnectionOnReceivedPermission() {
-        if (error==0) {
+        if (error == 0) {
             //open communication with the device
             connection = mUsbManager.openDevice(device);
 
@@ -403,8 +404,7 @@ public class UsbController {
             //receive the Ack
             returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
             end = System.currentTimeMillis();
-            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x, in %d ms", receiveData[0],
-                    end - start));
+            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x, in %d ms", receiveData[0], end - start));
         }
         return returnCode;
     }

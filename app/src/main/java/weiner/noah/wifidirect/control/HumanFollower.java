@@ -1,5 +1,6 @@
 package weiner.noah.wifidirect.control;
 
+import android.graphics.ImageDecoder;
 import android.util.Log;
 
 import org.tensorflow.lite.examples.noah.lib.Device;
@@ -24,6 +25,8 @@ public class HumanFollower {
     private Thread mFollowThread;
     private Thread mLandingThread;
 
+    private MainActivity mainActivity;
+
     private AtomicBoolean following = new AtomicBoolean(false);
     private AtomicBoolean landing = new AtomicBoolean(false);
     private AtomicBoolean kill = new AtomicBoolean(false);
@@ -34,6 +37,7 @@ public class HumanFollower {
 
     public HumanFollower(UsbController usbController, MainActivity mainActivity) {
         this.usbController = usbController;
+        this.mainActivity = mainActivity;
         posenetStats = new PosenetStats(new Posenet(mainActivity.getApplicationContext(), "posenet_model.tflite", Device.GPU), mainActivity);
     }
 
@@ -44,6 +48,9 @@ public class HumanFollower {
      *  - When stop is called, stop monitoring Posenet, and safely land the drone, wherever it currently is.
      * */
     public void start() {
+        //reject joystick stream
+        mainActivity.setRelay(false);
+
         Log.i(LOG_TAG, "HumanFollower start() called!");
 
         //set 'following' AtomicBool to true
@@ -58,6 +65,9 @@ public class HumanFollower {
     public void stop() {
         following.set(false);
         land();
+
+        //re-enable joystick stream
+        mainActivity.setRelay(true);
     }
 
 
@@ -223,7 +233,14 @@ public class HumanFollower {
 
     //send a CRTP packet to the drone, waiting for ack from drone but ignoring it
     private void sendPacket(CrtpPacket packet) {
-        //usbController.sendBulkTransfer(packet.toByteArray(), new byte[1]);
+        byte[] ack = new byte[1];
+
+        Log.i(LOG_TAG, "Sending next packet via sendBulkTransfer...");
+
+        usbController.sendBulkTransfer(packet.toByteArray(), ack);
+
+        if (ack[0] == 0x09)
+            Log.i(LOG_TAG, "sendBulkTransfer got back correct ack from drone 0x09");
     }
 
 
@@ -256,13 +273,14 @@ public class HumanFollower {
 
             //UP SEQUENCE
             while (cnt[0] < 50) {
-                sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
+                //sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
+                sendPacket(new CommanderPacket(0, 0, 0, (char) 150001));
 
-                /*
+
                 //always check if 'Kill' button has been pressed
                 if (killCheck()) {
                     return;
-                }*/
+                }
 
                 try {
                     Thread.sleep(50);
@@ -284,10 +302,11 @@ public class HumanFollower {
             int correctionLock = 0;
             boolean waitOnLock = false;
 
-            Log.i(LOG_TAG, "Running posenetstats");
+            Log.i(LOG_TAG, "Running FollowRunnable launchsequence");
             //launch the drone up to TARG_HEIGHT
-            //launchSequence();
+            launchSequence();
 
+            /*
             //'landing' should already have been reset to false at this time
             //FIXME: it makes more sense for resetting 'landing' to false to go here
 
@@ -339,8 +358,7 @@ public class HumanFollower {
                     sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
                 }
 
-                /*TODO: problem: distance won't be updated fast enough, since Posenet is pretty slow. That means we should wait several cycles before applying another
-                correction*/
+                //TODO: problem: distance won't be updated fast enough, since Posenet pretty slow. That means should wait several cycles before applying another correction
 
 
                 //Check if a kill has been requested. If so, end this thread.
@@ -363,9 +381,8 @@ public class HumanFollower {
                 catch (InterruptedException e) {
                     e.printStackTrace();
                     following.set(false); kill.set(false);
-                }
+                }*/
             }
         }
 
     }
-}
