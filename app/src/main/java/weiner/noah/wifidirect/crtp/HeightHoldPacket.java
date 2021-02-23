@@ -11,17 +11,17 @@ public class HeightHoldPacket extends CrtpPacket {
     /**
      * Create a new Guojun height hold packet.
      *
-     * @param roll (Deg.)
-     * @param pitch (Deg.)
+     * @param vx (Deg.)
+     * @param vy (Deg.)
      * @param yaw (Deg./s)
      * @param height (m)
      */
-    public HeightHoldPacket(float roll, float pitch, float yaw, float height) {
+    public HeightHoldPacket(float vx, float vy, float yaw, float height) {
         //heighthold is Port 9, channel 1
         super(1, CrtpPort.COMMANDER_POSHOLD);
 
-        this.mRoll = roll; // * (float)(Math.PI / 180.0);
-        this.mPitch = pitch; // * (float)(Math.PI / 180.0);
+        this.mRoll = vx; // * (float)(Math.PI / 180.0);
+        this.mPitch = vy; // * (float)(Math.PI / 180.0);
         this.mYawrate = yaw; // * (float)(Math.PI / 180.0);
         this.mHeight = height;
     }

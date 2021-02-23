@@ -30,6 +30,8 @@ public class HumanFollower {
 
     private PosenetStats posenetStats;
 
+    private final int CORRECTION_RELAX = 10;
+
     public HumanFollower(UsbController usbController, MainActivity mainActivity) {
         this.usbController = usbController;
         posenetStats = new PosenetStats(new Posenet(mainActivity.getApplicationContext(), "posenet_model.tflite", Device.GPU), mainActivity);
@@ -279,7 +281,10 @@ public class HumanFollower {
 
 
         public void run() {
-            Log.i(LOG_TAG, "Running psoenetstats");
+            int correctionLock = 0;
+            boolean waitOnLock = false;
+
+            Log.i(LOG_TAG, "Running posenetstats");
             //launch the drone up to TARG_HEIGHT
             //launchSequence();
 
@@ -291,8 +296,52 @@ public class HumanFollower {
 
             //hover indefinitely
             while (true) {
-                //HOVER SEQUENCE
-                sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+                //get distance from the human
+                float dist_to_hum = posenetStats.getDistToHum();
+                Log.i(LOG_TAG, "From HumFollower: dist to hum is " + dist_to_hum);
+
+                //we'd like to stay in the distance range 0.4-0.6m
+                if (dist_to_hum == -1.0f || waitOnLock) {
+                    //if human not in frame, just hover in place
+                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+
+                    //if we're waiting safely for dist from human to update
+                    if (waitOnLock) {
+                        //if we still haven't waited long enough, just keep incrementing the lock counter
+                        if (correctionLock < CORRECTION_RELAX) {
+                            correctionLock++;
+                        }
+
+                        //otherwise our wait time is complete, so set waitOnLock to false to enable correction adjustments
+                        else {
+                            waitOnLock = false;
+                            correctionLock = 0;
+                        }
+                    }
+                }
+                else if (dist_to_hum < 0.4f) {
+                    //if human too close, pitch backward one packet
+                    sendPacket(new HeightHoldPacket(0, -1, 0, TARG_HEIGHT));
+
+                    //lock any corrections for CORRECTION_RELAX cycles, so that we don't get ahead of the Posenet thread
+                    waitOnLock = true;
+                }
+                else if (dist_to_hum > 0.6f) {
+                    //if human too far, pitch forward one packet
+                    sendPacket(new HeightHoldPacket(0, 1, 0, TARG_HEIGHT));
+
+                    //lock any corrections for CORRECTION_RELAX cycles, so that we don't get ahead of the Posenet thread
+                    waitOnLock = true;
+                }
+
+                //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
+                else {
+                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+                }
+
+                /*TODO: problem: distance won't be updated fast enough, since Posenet is pretty slow. That means we should wait several cycles before applying another
+                correction*/
+
 
                 //Check if a kill has been requested. If so, end this thread.
                 //NOTE: DRONE WILL FALL

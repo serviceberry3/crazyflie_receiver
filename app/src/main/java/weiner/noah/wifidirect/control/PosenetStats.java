@@ -83,6 +83,9 @@ public class PosenetStats {
     private MainActivity mainActivity;
     private final String TAG = "PosenetStats";
 
+    //whether we have both eyes of human in the frame. Determines whether or not we can calculate dist to the human
+    private boolean bothEyesFound = false;
+
     private Thread mLiveFeedThread;
     private PosenetLiveStatFeed posenetLiveStatFeed;
 
@@ -104,7 +107,10 @@ public class PosenetStats {
     }
 
     public float getDistToHum() {
-        return dist_to_hum.get();
+        if (bothEyesFound)
+            return dist_to_hum.get();
+        else
+            return -1;
     }
 
     private class PosenetLiveStatFeed implements Runnable {
@@ -148,6 +154,8 @@ public class PosenetStats {
          */
         private int PREVIEW_WIDTH = 640;
         private int PREVIEW_HEIGHT = 480;
+
+
 
 
         //Macros for 'looking' variable
@@ -735,7 +743,7 @@ public class PosenetStats {
             //Perform inference.
             Person person = posenet.estimateSinglePose(scaledBitmap);
 
-            draw(person, scaledBitmap);
+            getTrackingInformation(person, scaledBitmap);
 
             //displacementOnly(person, canvas);
         }
@@ -749,8 +757,7 @@ public class PosenetStats {
         //the Canvas class holds the draw() calls. To draw something, you need 4 basic components: A Bitmap to hold the pixels,
         // a Canvas to host the draw calls (writing into the bitmap),
         // a drawing primitive (e.g. Rect, Path, text, Bitmap), and a paint (to describe the colors and styles for the drawing).
-        private void draw(Person person, Bitmap bitmap) { //NOTE: the Bitmap passed here is 257x257 pixels, good for Posenet model
-
+        private void getTrackingInformation(Person person, Bitmap bitmap) { //NOTE: the Bitmap passed here is 257x257 pixels, good for Posenet model
             //Draw `bitmap` and `person` in square canvas.
             int screenWidth, screenHeight, left, right, top, bottom, canvasHeight, canvasWidth;
 
@@ -774,7 +781,7 @@ public class PosenetStats {
 
             //Log.d(TAG, String.format("Found %d keypoints for the person", keyPoints.size()));
 
-            //Draw key points of the person's body parts over the camera image
+            //Process keypoints of the person's body
             for (KeyPoint keyPoint : keyPoints) {
                 //get the body part ONCE at the beginning
                 currentPart = keyPoint.getBodyPart();
@@ -792,17 +799,6 @@ public class PosenetStats {
                         humanActualRaw[0] = new Point(xValue, yValue);
                         humanActualRaw[1] = new Point(xValue, yValue);
 
-                                /*
-                                if (noseFound == 0) {
-                                        noseFound = 1;
-                                        setInitialNoseLocation(adjustedX, adjustedY);
-                                }
-
-                                else {
-                                        //compute the displacement from the starting position that the nose has traveled (helper fxn)
-                                        computeDisplacement(adjustedX, adjustedY);
-                                }
-                                */
                     } else if (currentPart == BodyPart.LEFT_EYE) {
                         //add nose to first slot of Point array for pose estimation
                         humanActualRaw[2] = new Point(xValue, yValue);
@@ -810,12 +806,12 @@ public class PosenetStats {
                         //add x val of left eye to bbox array
                         boundingBox[1] = new Point(xValue, yValue);
 
-
                         leftEyeFound = 1;
                         leftEye = new Position(xValue, yValue);
 
                         //if we've also already found right eye, we have both eyes. Send data to the scale computer
                         if (rightEyeFound == 1) {
+                            bothEyesFound = true;
                             dist = computeScale(leftEye, rightEye);
                             dist_to_hum.set(dist);
                             Log.i(TAG, "Dist to hum is " + dist_to_hum.get());
@@ -832,6 +828,7 @@ public class PosenetStats {
 
                         //if we've also already found left eye, we have both eyes. Send data to the scale computer
                         if (leftEyeFound == 1) {
+                            bothEyesFound = true;
                             dist = computeScale(leftEye, rightEye);
                             dist_to_hum.set(dist);
                             Log.i(TAG, "Dist to hum is " + dist_to_hum.get());
@@ -849,40 +846,10 @@ public class PosenetStats {
                         boundingBox[3] = new Point(xValue, yValue);
                     }
                 }
-
-                /*
-                //if this point is the nose but we've lost our lock on it (confidence level is low)
-                else if (currentPart == BodyPart.NOSE) {
-                        //set noseFound back to 0
-                        noseFound = 0;
-
-                        //reset velocity array
-                        velocity[0] = velocity[1] = 0;
-                }
-                */
             }
 
-            /*
-            //draw the lines of the person's limbs
-            for (Pair line : bodyJoints) {
-                    assert line.first != null;
-                    assert line.second != null;
-
-                    if ((keyPoints.get(BodyPart.getValue((BodyPart) line.first)).getScore() > minConfidence) &&
-                            (keyPoints.get(BodyPart.getValue((BodyPart) line.second)).getScore() > minConfidence)) {
-
-                            //draw a line for this "limb" using coordinates of the two BodyPart points and the scaling ratios again
-                            canvas.drawLine(
-                                    keyPoints.get(BodyPart.getValue((BodyPart) line.first)).getPosition().getX() * widthRatio + left,
-                                    keyPoints.get(BodyPart.getValue((BodyPart) line.first)).getPosition().getY() * heightRatio + top,
-                                    keyPoints.get(BodyPart.getValue((BodyPart) line.second)).getPosition().getX() * widthRatio + left,
-                                    keyPoints.get(BodyPart.getValue((BodyPart) line.second)).getPosition().getY() * heightRatio + top,
-                                    //the paint tool we've set up
-                                    paint
-                            );
-                    }
-            }
-            */
+            //check whether both left and right eyes were in the frame, and set bothEyesFound accordingly
+            bothEyesFound = (rightEyeFound & leftEyeFound) == 1;
 
             //ONLY EVERY THIRD FRAME, maybe?
             //check that all of the keypoints for a human body bust area were found
@@ -890,7 +857,7 @@ public class PosenetStats {
                     && humanActualRaw[4] != null && humanActualRaw[5] != null
                 //&& frameCounter==3
             ) {
-                //DRAW BOUNDING BOX
+                //BOUNDING BOX
                 //top is aligned with uppermost eye
                 double bbox_top = Math.max(humanActualRaw[3].y, humanActualRaw[2].y);
 
