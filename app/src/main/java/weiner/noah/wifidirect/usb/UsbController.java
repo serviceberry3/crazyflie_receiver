@@ -44,6 +44,8 @@ public class UsbController {
 
     public byte b;
 
+    private final String TAG = "UsbController";
+
     //constant variable for the UsbRunnable (data transfer loop)
     private UsbRunnable mLoop;
     private ReadRunnable mReceiver;
@@ -128,6 +130,7 @@ public class UsbController {
     }
 
     private void init() {
+        Log.i(TAG, "UsbController init() calling listDevices()");
         listDevices(new IPermissionListener() {
             @Override
             public void onPermissionDenied(UsbDevice d) {
@@ -166,6 +169,7 @@ public class UsbController {
                 Log.e("CONNECTION", "Failed to claim exclusive access to the USB interface.");
                 return;
             }
+
             Log.i("USBTAG", "Interface claimed");
 
 
@@ -203,11 +207,7 @@ public class UsbController {
             }
 
 
-            //Log.d("STARTTHREADS", "Starting data transfer threads...");
-
-
-            //start setting up the USB device in new thread
-            //startDataTransferThreads(device);
+            Log.i(TAG, "USB connection setup finished successfully.");
         }
 
 
@@ -436,12 +436,15 @@ public class UsbController {
 
     //stop usb data transfer
     public void stop() {
+        Log.i(TAG, "Stop() called on UsbController instance");
+
+        //IGNORE FOR NOW, ONLY NEEDED IF USING RECEIVERUNNABLE
+        /*
         synchronized (killLock) {
             mKillReceiver = true;
 
             //ping a kill signal off of the STM32 over to the requestWait() blocking function
             send((byte) 0xFF);
-
 
             try {
                 //wait to make sure sending of kill signal is done and receiver has shut down
@@ -450,24 +453,25 @@ public class UsbController {
             catch (InterruptedException e) {
                 e.printStackTrace();
             }
-        }
+        }*/
 
+        //IGNORE FOR NOW, ONLY NEEDED IF USING USBRUNNABLE
+        /*
         synchronized (sSendLock) {
             //wake up sending thread to make it return
             mStop = true;
             sSendLock.notify();
-        }
+        }*/
 
         //readingRequest.close();
-        //connection.close();
 
         //terminate the data transfer thread by joining it to main UI thread, also terminate receiving thread
         try { //cleaning up threads
-            if (mUsbThread!=null) {
+            if (mUsbThread != null) {
                 Log.d("DBUG", "Joining UsbThread...");
                 mUsbThread.join();
             }
-            if (mReceiveThread!=null) {
+            if (mReceiveThread != null) {
                 Log.d("DBUG", "Joining ReceiveThread...");
                 mReceiveThread.join();
             }
@@ -483,6 +487,9 @@ public class UsbController {
         mUsbThread = null;
         mReceiveThread = null;
 
+        //Close the USB connection
+        connection.close();
+
         //try to unregister the permission receiver
         try {
             mApplicationContext.unregisterReceiver(mPermissionReceiver);
@@ -494,7 +501,7 @@ public class UsbController {
 
     //start up a new thread for USB comms with the given device
     private void startDataTransferThreads(UsbDevice device) {
-        if (mLoop !=null) {
+        if (mLoop != null) {
             //USB data transfer thread already running
             mConnectionHandler.onErrorLooperRunningAlready();
             return;

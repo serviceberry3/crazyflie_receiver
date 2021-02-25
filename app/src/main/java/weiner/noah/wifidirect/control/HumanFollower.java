@@ -233,10 +233,33 @@ public class HumanFollower {
     //send a CRTP packet to the drone, waiting for ack from drone but ignoring it
     private void sendPacket(CrtpPacket packet) {
         byte[] ack = new byte[1];
+        byte[] dataOut = packet.toByteArray();
 
         Log.i(LOG_TAG, "Sending next packet via sendBulkTransfer...");
 
-        usbController.sendBulkTransfer(packet.toByteArray(), ack);
+        if (dataOut.length == 15) {
+            Log.i(LOG_TAG, String.format("Phone sending USB packet 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X " +
+                            "0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X",
+                    //"0x%02X 0x%02X 0x%02X 0x%02X " +
+                    //"0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X " +
+                    //"0x%02X 0x%02X 0x%02X 0x%02X to drone",
+                    dataOut[0], dataOut[1], dataOut[2], dataOut[3], dataOut[4],
+                    dataOut[5], dataOut[6], dataOut[7], dataOut[8], dataOut[9], dataOut[10], dataOut[11], dataOut[12],
+                    dataOut[13], dataOut[14]));
+        }
+        else if (dataOut.length == 18) {
+            Log.i(LOG_TAG, String.format("Phone sending USB packet 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X " +
+                            "0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X",
+                    //"0x%02X 0x%02X 0x%02X 0x%02X " +
+                    //"0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X " +
+                    //"0x%02X 0x%02X 0x%02X 0x%02X to drone",
+                    dataOut[0], dataOut[1], dataOut[2], dataOut[3], dataOut[4],
+                    dataOut[5], dataOut[6], dataOut[7], dataOut[8], dataOut[9], dataOut[10], dataOut[11], dataOut[12],
+                    dataOut[13], dataOut[14], dataOut[15], dataOut[16], dataOut[17]));
+        }
+
+
+        usbController.sendBulkTransfer(dataOut, ack);
 
         if (ack[0] == 0x09)
             Log.i(LOG_TAG, "sendBulkTransfer got back correct ack from drone 0x09");
@@ -268,12 +291,12 @@ public class HumanFollower {
 
         private void launchSequence() {
             //Unlock startup thrust protection
-            sendPacket(new CommanderPacket(0, 0, 0, (char) 0));//Unlock startup thrust protection
+            sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
 
             //UP SEQUENCE
-            while (cnt[0] < 50) {
+            while (cnt[0] < 20) { //SHOuLD BE 50
                 sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
-                //sendPacket(new CommanderPacket(0, 0, 0, (char) 150001));
+                //sendPacket(new CommanderPacket(0, 0, 0, (char) 12001));
 
 
                 //always check if 'Kill' button has been pressed
@@ -293,6 +316,12 @@ public class HumanFollower {
                     //thread now stops and goes home
                 }
 
+                /*
+                //DELIBERATELY CRASH THE THREAD
+                if (cnt[0] == 10) {
+
+                }*/
+
                 cnt[0]++;
             }
         }
@@ -302,18 +331,20 @@ public class HumanFollower {
             int correctionLock = 0;
             boolean waitOnLock = false;
 
-            Log.i(LOG_TAG, "Running FollowRunnable launchsequence");
+            Log.i(LOG_TAG, "Running FollowRunnable launchSequence()");
             //launch the drone up to TARG_HEIGHT
             launchSequence();
 
             //move forward test
-            sendPacket(new HeightHoldPacket(1, 0, 0, TARG_HEIGHT));
+            //sendPacket(new HeightHoldPacket(1, 0, 0, TARG_HEIGHT));
 
             //'landing' should already have been reset to false at this time
             //FIXME: it makes more sense for resetting 'landing' to false to go here
 
             //at this point, activate Posenet human tracking (separate thread)
-            //posenetStats.start();
+            posenetStats.start(); //WILL CRASH DELIBERATELY
+
+            //mainActivity.setRelay(true);
 
             //hover indefinitely
             while (true) {
@@ -362,6 +393,7 @@ public class HumanFollower {
                 else {
                     sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
                 }*/
+
 
                 //TODO: problem: distance won't be updated fast enough, since Posenet pretty slow. That means should wait several cycles before applying another correction
 

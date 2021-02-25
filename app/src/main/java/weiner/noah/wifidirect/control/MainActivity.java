@@ -62,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
     private Button buttonDiscover;
 
     //should we relay packets to the drone? Must be atomic because it's read constantly by main thread, and modified by LandRunnable in HumanFollower
-    private AtomicBoolean relayOn = new AtomicBoolean(true);
+    private AtomicBoolean relayOn = new AtomicBoolean(false);
 
     IntentFilter peerfilter;
     IntentFilter connectionfilter;
@@ -202,6 +202,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        /*
         Button buttonServer = (Button) findViewById(R.id.buttonServer);
 
         buttonServer.setOnClickListener(new View.OnClickListener() {
@@ -209,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View view) {
                 new becomeServerForPC().start();
             }
-        });
+        });*/
 
         //set list item (device) so that when clicked, connectTo() function is run on that device
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
@@ -234,13 +235,18 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View v) {
                 if (usbController != null && usbController.error == 1) {
                     //if we don't already have controller set up, do it now
-                    Log.d("DBUG", "Trying to find devices after none found last time...");
+                    Log.d(TAG, "Trying to find devices after none found last time (error is 1)...");
                 }
                 else {
-                    //scrap old controller and "reset" the controller by making new one
+                    //make sure the current usbController is non-null
                     assert usbController != null;
+
+                    Log.i(TAG, "Stopping current UsbController...");
+                    //stop current usbController
                     usbController.stop();
                 }
+
+                //make new UsbController
                 usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
             }
         });

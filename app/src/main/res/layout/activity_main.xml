@@ -8,20 +8,21 @@
         android:id="@+id/buttonEnable"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Enable" />
+        android:text="Wifi settings" />
 
     <Button
         android:id="@+id/buttonDiscover"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:enabled="false"
-        android:text="Discover Peers" />
+        android:text="Discover Wifi peers" />
 
+    <!--
     <Button
         android:id="@+id/buttonServer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Launch as server and wait" />
+        android:text="Launch as server and wait" />-->
 
     <Button
         android:id="@+id/buttonListUsbDevices"

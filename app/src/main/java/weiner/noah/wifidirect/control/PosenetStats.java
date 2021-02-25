@@ -1162,6 +1162,9 @@ public class PosenetStats {
                 }
 
                 Log.i(TAG, "cameraManager.openCamera()");
+
+                //DELIBERATELY CRASH THE APP
+                int test = 5 / 0;
                 cameraManager.openCamera(cameraId, new stateCallback(), backgroundHandler);
             }
             catch (InterruptedException e) {
