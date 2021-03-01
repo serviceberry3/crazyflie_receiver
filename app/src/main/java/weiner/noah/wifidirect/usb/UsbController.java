@@ -50,7 +50,10 @@ public class UsbController {
     private UsbRunnable mLoop;
     private ReadRunnable mReceiver;
 
-    private UsbRequest readingRequest;
+    private UsbRequest readingRequest = new UsbRequest();
+    private UsbRequest sendingRequest = new UsbRequest();
+    private UsbRequest pktSendRequest = new UsbRequest();
+
 
     //make bulktransfer block until receive data
     private static int TRANSFER_TIMEOUT = 0;
@@ -79,6 +82,10 @@ public class UsbController {
         activity = act;
         error = 0;
         init();
+    }
+
+    public UsbDeviceConnection getConnection() {
+        return connection;
     }
 
     private class PermissionReceiver extends BroadcastReceiver {
@@ -113,7 +120,7 @@ public class UsbController {
                     Log.d("USBTAG", "Permission granted for the device");
 
                     //first check if device is null
-                    if (device!=null) {
+                    if (device != null) {
                         //make sure this is the Arduino
                         if (device.getVendorId() == VID && device.getProductId() == PID) {
                             //locked onto the Arduino, now start the USB protocol setup
@@ -172,10 +179,7 @@ public class UsbController {
 
             Log.i("USBTAG", "Interface claimed");
 
-
             //USB CONTROL INITIALIZATION
-
-
             Log.i("USBTAG", "Control transfer start...");
             //set control line state, as defined in https://cscott.net/usb_dev/data/devclass/usbcdc11.pdf, p. 51
             connection.controlTransfer(0x21, 34, 0, 0, null, 0, 10);
@@ -206,10 +210,17 @@ public class UsbController {
                 }
             }
 
+            //initialize an asynchronous requests for USB data from the connected device
+            readingRequest.initialize(connection, in);
+            sendingRequest.initialize(connection, out);
+            pktSendRequest.initialize(connection, out);
 
+
+            //start receiving data from drone asynchronously
+            mReceiveThread = new Thread(new ReadRunnable());
+            mReceiveThread.start();
             Log.i(TAG, "USB connection setup finished successfully.");
         }
-
 
         else {
             Log.d("ERROR", "Error found");
@@ -273,6 +284,10 @@ public class UsbController {
     //an empty array is less overhead space than an actual instantiation of a new Object()
     private static final Object[] sSendLock = new Object[]{};
     private static final Object[] killLock = new Object[]{};
+
+    //lock to synchronize packet sending
+    private static final Object[] pktSendLock = new Object[]{};
+
     private volatile boolean mStop = false, mKillReceiver = false;
 
     //the byte for sending
@@ -387,24 +402,248 @@ public class UsbController {
         }
     }
 
+    /*
+    //Runnable that safely lands the drone, starting from TARG_HEIGHT
+    public class BulkTransferRunnable implements Runnable {
+        private final Object mPauseLock;
+        private boolean mPaused;
+        private boolean mFinished;
+        private byte[] data;
+        private byte[] receiveData;
+
+        public BulkTransferRunnable(byte[] data, byte[] receiveData) {
+            mPauseLock = new Object();
+            mPaused = false;
+            mFinished = false;
+            this.data = data;
+            this.receiveData = receiveData;
+        }
+
+
+        public void run() {
+            try {
+                long start, end;
+                Log.i(TAG, "sendBulkTransfer...");
+
+                int returnCode = -1;
+
+                int ctr = 0;
+
+                //make sure we have a valid connection
+                if (connection != null) {
+                    //start = System.currentTimeMillis();
+
+                    //send the data, which will always be a packet here
+                    connection.bulkTransfer(out, data, data.length, TRANSFER_TIMEOUT);
+
+                    //receive the Ack
+                    returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+
+                    //there are two things that might be on the drone's USB TX queue at this point, so we might get one of two things in receiveData[0]
+                    //0xCC: this is drone's request for an ack from the phone. In this case, we should immediately send back 0x12 to the drone
+
+
+                    //0x09: this is an ack from the drone indicating that it received the packet and next one can be sent. We should wait here until we get an 0x09
+
+                    //if we got 0xCC, send 0x12 back immediately
+
+
+                    if (receiveData[0] == (byte)0xcc) {
+                        Log.i(TAG, "sendBulkTransfer(): sending phone ack to drone");
+                        connection.bulkTransfer(out, new byte[]{0x12}, 1, TRANSFER_TIMEOUT);
+
+                        //receive the Ack
+                        //returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+
+                        //ctr++;
+                        //Log.i(TAG, "Received 0xCC #" + ctr);
+
+
+                        //if the byte received is 0xcc (this should always be true initially
+                        while (receiveData[0] != (byte)0x09) {
+                            //receive a new byte from the drone
+                            returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+
+                            //FIXME: if we flush some 0xCC that was sent by usbCheckPhoneTask, drone won't receive the matching 0x12, which will cause fail?
+
+                            //if we still got 0xcc, which is possible (it's undefined the order in which things will be sent, since two separate tasks send USB data in the drone firmware), send another 0x12 to confirm
+                            if (receiveData[0] == (byte)0xcc) {
+                                //send 0x12 to the drone to confirm the phone is alive
+                                connection.bulkTransfer(out, new byte[]{0x12}, 1, TRANSFER_TIMEOUT);
+
+                                //FIXME: drone still misses some 0x12's
+
+                                //ctr++;
+                                //Log.i(TAG, "Received 0xCC #" + ctr);
+                            }
+
+                            Thread.sleep(4);
+                        }
+                    }
+
+
+
+                    Log.i(TAG, "sendBulkTransfer waiting for notify...");
+                    //need to wait here until ReadRunnable gets 0x09
+                    synchronized (pktSendLock) {
+                        try {
+                            pktSendLock.wait();
+                        }
+                        catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    Log.i(TAG, "sendBulkTransfer got notify...");
+
+                    //at this point we've surely received 0x09 into receiveData, so we can return
+
+
+                    //end = System.currentTimeMillis();
+                    //Log.i(TAG, String.format("Got back USB transfer from drone: data is %x. Returning...", receiveData[0] , end - start));
+                }
+                else {
+                    Log.e(TAG, "sendBulkTransfer(): cnnxn null!");
+                }
+            }
+
+            //If a kill was requested, stop and resume joystick thread
+            catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }*/
+
+
 
     //send packet to drone via USB, and receive Ack back
     public int sendBulkTransfer(byte[] data, byte[] receiveData) {
         long start, end;
-        //Log.i("USBCONTROLLER", "sendBulkTransfer...");
+        Log.i(TAG, "sendBulkTransfer...");
 
         int returnCode = -1;
 
+        int ctr = 0;
+
+        UsbEndpoint completedRequest = null;
+        UsbRequest completedRqst = null;
+
+        ByteBuffer incoming = ByteBuffer.allocate(1);
+        ByteBuffer phoneAck = ByteBuffer.allocate(1);
+        phoneAck.put((byte)0x12);
+
         //make sure we have a valid connection
         if (connection != null) {
-            //send the data
-            start = System.currentTimeMillis();
-            connection.bulkTransfer(out, data, data.length, TRANSFER_TIMEOUT);
+            //start = System.currentTimeMillis();
+
+            //send the data, which will always be a packet here
+            //connection.bulkTransfer(out, data, data.length, TRANSFER_TIMEOUT);
+
+
+            //send the packet asynchronously
+            pktSendRequest.queue(ByteBuffer.wrap(data));
+
+            /*
+            while (completedRqst != pktSendRequest) {
+                completedRqst = connection.requestWait();
+                Log.i(TAG, "requestWait() for pkt send");
+                // wait for confirmation (request was sent)
+
+
+                // the direction is dictated by this initialisation to the incoming endpoint.
+                if (readingRequest.queue(incoming, 1)) {
+                    connection.requestWait();
+                    // wait for this request to be completed
+                    // at this point buffer contains the data received
+
+                    //copy received byte into receiveData[0]
+                    receiveData[0] = incoming.get(0);
+
+                    Log.i(TAG, "Sendbulktransfer got " + receiveData[0] + " from drone");
+                }
+            }*/
+
 
             //receive the Ack
-            returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
-            end = System.currentTimeMillis();
-            Log.i("USBCONTR", String.format("Got back USB transfer from drone: data is %x, in %d ms", receiveData[0], end - start));
+            //returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+
+            //there are two things that might be on the drone's USB TX queue at this point, so we might get one of two things in receiveData[0]
+            //0xCC: this is drone's request for an ack from the phone. In this case, we should immediately send back 0x12 to the drone
+
+
+            //0x09: this is an ack from the drone indicating that it received the packet and next one can be sent. We should wait here until we get an 0x09
+
+            //if we got 0xCC, send 0x12 back immediately
+
+
+            /*
+            if (receiveData[0] == (byte)0xcc) {
+                Log.i(TAG, "sendBulkTransfer(): sending phone ack to drone");
+                //connection.bulkTransfer(out, new byte[]{0x12}, 1, TRANSFER_TIMEOUT);
+
+                pktSendRequest.queue(phoneAck);
+                connection.requestWait();
+
+                //receive the Ack
+                //returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+
+                //ctr++;
+                //Log.i(TAG, "Received 0xCC #" + ctr);
+
+
+                //if the byte received is 0xcc (this should always be true initially
+                while (receiveData[0] != (byte)0x09) {
+                    //receive a new byte from the drone
+                    //returnCode = connection.bulkTransfer(in, receiveData, receiveData.length, TRANSFER_TIMEOUT);
+
+                    if (readingRequest.queue(incoming, 1)) {
+                        connection.requestWait();
+                        // wait for this request to be completed
+                        // at this point buffer contains the data received
+
+                        //copy received byte into receiveData[0]
+                        receiveData[0] = incoming.get(0);
+                        Log.i(TAG, "Sendbulktransfer got " + receiveData[0] + " from drone [INNER]");
+                    }
+
+                    //FIXME: if we flush some 0xCC that was sent by usbCheckPhoneTask, drone won't receive the matching 0x12, which will cause fail?
+
+                    //if we still got 0xcc, which is possible (it's undefined the order in which things will be sent, since two separate tasks send USB data in the drone firmware), send another 0x12 to confirm
+                    if (receiveData[0] == (byte)0xcc) {
+                        //send 0x12 to the drone to confirm the phone is alive
+                        //connection.bulkTransfer(out, new byte[]{0x12}, 1, TRANSFER_TIMEOUT);
+
+                        Log.i(TAG, "sendBulkTransfer(): sending phone ack to drone [INNER]");
+                        pktSendRequest.queue(phoneAck);
+                        connection.requestWait();
+
+                        //FIXME: drone still misses some 0x12's
+
+                        //ctr++;
+                        //Log.i(TAG, "Received 0xCC #" + ctr);
+                    }
+                }
+            }*/
+
+
+            Log.i(TAG, "sendBulkTransfer waiting for notify...");
+            //need to wait here until ReadRunnable gets 0x09
+            synchronized (pktSendLock) {
+                try {
+                    pktSendLock.wait();
+                }
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            Log.i(TAG, "sendBulkTransfer got notify...");
+
+            //at this point we've surely received 0x09 ack from drone, so we can return
+
+            //end = System.currentTimeMillis();
+            //Log.i(TAG, String.format("Got back USB transfer from drone: data is %x. Returning...", receiveData[0] /*, end - start*/));
+        }
+        else {
+            Log.e(TAG, "sendBulkTransfer(): cnnxn null!");
         }
         return returnCode;
     }
@@ -423,7 +662,7 @@ public class UsbController {
         Log.d("TRANSFERRING VAL", String.format("%d", transferring));
 
         //wait until all receiving finished
-        while (transferring==1) {
+        while (transferring == 1) {
             ;
         }
 
@@ -522,39 +761,78 @@ public class UsbController {
 
 
     private class ReadRunnable implements Runnable {
-        private byte[] incomingData = new byte[33];
+        //private byte[] incomingData = new byte[33];
         @Override
         public void run() {
             //queue up
-            final ByteBuffer buffer = ByteBuffer.allocate(33);
+            final ByteBuffer buffer = ByteBuffer.allocate(1);
 
-            readingRequest = new UsbRequest();
+            //phone ack buffer
+            final ByteBuffer outBuffer = ByteBuffer.allocate(1);
+            outBuffer.put((byte)0x12);
 
-            //intialize an asynchronous request for USB data from the connected device
-            readingRequest.initialize(connection, in);
+            UsbEndpoint completedRequest = null;
+            UsbRequest completedRqst = null;
 
             //wait for data to become available to receive
             while (true) {
-                if (readingRequest.queue(buffer, 33)) {
-                    Log.d("QUEUE", "WAITING FOR DATA...");
-                    connection.requestWait();
+                completedRequest = null;
 
+                //make sure queuing operation succeeds
+                if (readingRequest.queue(buffer, 1)) {  //FIXME
+                    Log.d(TAG, "WAITING FOR INCOMING USB DATA...");
+
+                    //wait for read request to finish
+                    while (completedRequest != in) {
+                        Log.i(TAG, "requestWait() for in");
+                        completedRequest = connection.requestWait().getEndpoint();
+                    }
+                    Log.i(TAG, "completedRequest is in");
+
+
+                    /*
                     //stamp time of data reception
                     receiveTimeValue = System.currentTimeMillis();
                     latency = receiveTimeValue - sendTimeValue;
+                    */
 
-
-                    //wait for this request to be completed
+                    //wait for the read request to be completed
                     //at this point buffer contains the data received
-                    final byte firstChar = buffer.get(0);
-                    Log.d("BUFFER", String.format("Got: Hex value %x", firstChar));
+                    byte firstChar = buffer.get(0);
+                    Log.d(TAG, "Received byte " + firstChar + " from drone");
+
+                    //if this is confirmation that drone received pkt, notify the pktSendLock
+                    if (firstChar == (byte)0x09) {
+                        synchronized (pktSendLock) {
+                            pktSendLock.notify();
+                        }
+                    }
+
+                    //if this is request for phone ack, queue 0x12 to be sent
+                    else if (firstChar == (byte)0xcc) {
+                        if (!sendingRequest.queue(outBuffer, 1)) {
+                            Log.e(TAG, "FAILED TO QUEUE PHONE ACK");
+                            return;
+                        }
+                        else {
+                            Log.i(TAG, "ReadRunnable Queued phone ack successfully");
+
+                            /*
+                            //FIXME: Do we need to wait for the send request queueing operation to succeed? Probably not, since we already check all acks...
+                            while (completedRqst != sendingRequest) {
+                                Log.i(TAG, "requestWait() for out");
+                                completedRqst = connection.requestWait();
+                            }*/
+                        }
+                        //don't block after sending 0x12 ack
+                    }
 
                     //if signal to kill has been sent by stop function, then end the thread so that we can reset
                     if (mKillReceiver) {
-                        Log.d("DBUG", "Receiver flagged to stop, returning...");
+                        Log.d(TAG, "ReadRunnable flagged to stop, returning...");
                         mConnectionHandler.onUsbStopped();
 
-                        synchronized ((killLock)) {
+                        synchronized (killLock) {
                             killLock.notify();
                         }
 

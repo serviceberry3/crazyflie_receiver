@@ -62,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
     private Button buttonDiscover;
 
     //should we relay packets to the drone? Must be atomic because it's read constantly by main thread, and modified by LandRunnable in HumanFollower
-    private AtomicBoolean relayOn = new AtomicBoolean(false);
+    private AtomicBoolean relayOn = new AtomicBoolean(true);
 
     IntentFilter peerfilter;
     IntentFilter connectionfilter;
@@ -425,6 +425,16 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    private void showToastie(final String text) {
+        runOnUiThread(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, text, Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
 
     private void initiateServerSocket() {
         ServerSocket serverSocket;
@@ -545,12 +555,26 @@ public class MainActivity extends AppCompatActivity {
 
                 catch (IOException e) {
                     Log.e(TAG, "IO Exception from trying to bind socket:", e);
+                    showToastie("Failed to connect to server (no route to host/EHOSTUNREACH). Close both apps and try again.");
+                    return;
                 }
 
                 int ctr = 0;
                 //infinitely get packets from the controller, relay them to the drone via USB, get packet back, and relay that back to the controller over WifiDirect
                 while (true) {
                     try {
+                        if (usbController.getConnection() == null) {
+                            Log.e(TAG, "UsbDeviceConnection came up null in client socket loop");
+                            showToastie("There was a problem with the USB connection. Close both apps and try again.");
+                            return;
+                        }
+
+                        if (inStream == null || outStream == null) {
+                            Log.e(TAG, "inStream or outStream is null in initiateClientSocket() Thread");
+                            showToastie("There was a problem with the Wifi connection. Close both apps and try again.");
+                            return;
+                        }
+
                         //this call blocks until it reads in data
                         int amtDataRead = inStream.read(inData);
 
@@ -591,6 +615,8 @@ public class MainActivity extends AppCompatActivity {
                         else if (relayOn.get()) {
                             //put the packet thru to the drone, getting the ack back
                             usbController.sendBulkTransfer(inData, outData);
+
+                            //new Thread(new UsbController.BulkTransferRunnable(inData, outData)).start();
 
                             /*
                             Log.i(TAG, String.format("indata len is %d", inData.length));
