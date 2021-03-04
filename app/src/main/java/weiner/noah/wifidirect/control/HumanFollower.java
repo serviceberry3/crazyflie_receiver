@@ -21,6 +21,7 @@ public class HumanFollower {
     private UsbController usbController;
     private final float TARG_HEIGHT = 0.3f;
     private final String LOG_TAG = "HumanFollower";
+    private final String CTRL = "Control";
 
     private Thread mFollowThread;
     private Thread mLandingThread;
@@ -294,10 +295,9 @@ public class HumanFollower {
             sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
 
             //UP SEQUENCE
-            while (cnt[0] < 20) { //SHOuLD BE 50
+            while (cnt[0] < 50) { //SHOULD BE 50
                 sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
                 //sendPacket(new CommanderPacket(0, 0, 0, (char) 12001));
-
 
                 //always check if 'Kill' button has been pressed
                 if (killCheck()) {
@@ -316,14 +316,35 @@ public class HumanFollower {
                     //thread now stops and goes home
                 }
 
-                /*
-                //DELIBERATELY CRASH THE THREAD
-                if (cnt[0] == 10) {
-
-                }*/
-
                 cnt[0]++;
             }
+
+            cnt[0] = 0;
+
+            /*
+            while (cnt[0] < 2) {
+                //move forward test
+                sendPacket(new HeightHoldPacket(1, 0, 0, TARG_HEIGHT));
+
+                //always check if 'Kill' button has been pressed
+                if (killCheck()) {
+                    return;
+                }
+
+                try {
+                    Thread.sleep(50);
+                }
+
+                //if interrupted by kill()
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                    following.set(false);
+                    kill.set(false);
+                    //thread now stops and goes home
+                }
+
+                cnt[0]++;
+            }*/
         }
 
 
@@ -333,57 +354,61 @@ public class HumanFollower {
 
             Log.i(LOG_TAG, "Running FollowRunnable launchSequence()");
             //launch the drone up to TARG_HEIGHT
-            launchSequence();
-
-            //move forward test
-            //sendPacket(new HeightHoldPacket(1, 0, 0, TARG_HEIGHT));
+            launchSequence();              //FIXME: CHANGED
 
             //'landing' should already have been reset to false at this time
             //FIXME: it makes more sense for resetting 'landing' to false to go here
 
             //at this point, activate Posenet human tracking (separate thread)
-            posenetStats.start(); //WILL CRASH DELIBERATELY
+            posenetStats.start();
 
             //mainActivity.setRelay(true);
 
             //hover indefinitely
             while (true) {
                 //get distance from the human
-                //float dist_to_hum = posenetStats.getDistToHum();
-                //Log.i(LOG_TAG, "From HumFollower: dist to hum is " + dist_to_hum);
+                float dist_to_hum = posenetStats.getDistToHum();
+                Log.i(CTRL, "From HumFollower: dist to hum is " + dist_to_hum);
 
 
                 //ONE IMPLEMENTATION
-                /*
+
                 //we'd like to stay in the distance range 0.4-0.6m
-                if (dist_to_hum == -1.0f || waitOnLock) {
-                    //if human not in frame, just hover in place
-                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+                if (dist_to_hum == -1.0f || waitOnLock || dist_to_hum == 0f) {
+                    //if human not in frame or it's too early, just hover in place
+                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));             //FIXME: uncomment packet sends
 
                     //if we're waiting safely for dist from human to update
                     if (waitOnLock) {
                         //if we still haven't waited long enough, just keep incrementing the lock counter
                         if (correctionLock < CORRECTION_RELAX) {
+                            Log.i(CTRL, "Still haven't waited long enough for waitOnLock, incr lock counter...");
                             correctionLock++;
+
                         }
 
                         //otherwise our wait time is complete, so set waitOnLock to false to enable correction adjustments
                         else {
+                            Log.i(CTRL, "Wait time complete, setting waitOnLock to false...");
                             waitOnLock = false;
                             correctionLock = 0;
                         }
                     }
                 }
                 else if (dist_to_hum < 0.4f) {
+                    Log.i(CTRL, "Human too close, pitch backward one packet...");
+
                     //if human too close, pitch backward one packet
-                    sendPacket(new HeightHoldPacket(0, -1, 0, TARG_HEIGHT));
+                    sendPacket(new HeightHoldPacket(-0.5f, 0, 0, TARG_HEIGHT));
 
                     //lock any corrections for CORRECTION_RELAX cycles, so that we don't get ahead of the Posenet thread
                     waitOnLock = true;
                 }
-                else if (dist_to_hum > 0.6f) {
+                else if (dist_to_hum > 0.7f) {
+                    Log.i(CTRL, "Human too far, pitch forward one packet...");
+
                     //if human too far, pitch forward one packet
-                    sendPacket(new HeightHoldPacket(0, 1, 0, TARG_HEIGHT));
+                    sendPacket(new HeightHoldPacket(0.5f, 0, 0, TARG_HEIGHT));
 
                     //lock any corrections for CORRECTION_RELAX cycles, so that we don't get ahead of the Posenet thread
                     waitOnLock = true;
@@ -391,14 +416,15 @@ public class HumanFollower {
 
                 //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
                 else {
+                    Log.i(CTRL, "Human in frame, at appropriate dist, sending hover pkt");
                     sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
-                }*/
+                }
 
 
                 //TODO: problem: distance won't be updated fast enough, since Posenet pretty slow. That means should wait several cycles before applying another correction
 
                 //HOVER
-                sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+                //sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
 
                 //Check if a kill has been requested. If so, end this thread.
                 //NOTE: DRONE WILL FALL
@@ -413,7 +439,7 @@ public class HumanFollower {
                 }
 
                 try {
-                    Thread.sleep(100);
+                    Thread.sleep(90);
                 }
 
                 //if interrupted by kill()

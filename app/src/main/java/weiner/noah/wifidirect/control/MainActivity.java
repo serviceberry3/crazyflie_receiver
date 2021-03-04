@@ -305,6 +305,8 @@ public class MainActivity extends AppCompatActivity {
             }
         });*/
 
+
+
     }
 
     //receive a Wifi Direct status change
@@ -627,6 +629,12 @@ public class MainActivity extends AppCompatActivity {
                                     inData[4], inData[5], inData[6], inData[7], inData[8], inData[9], inData[10], inData[11], inData[12], inData[13],
                                     inData[14], inData[15], inData[16]));*/
 
+                            if (outStream == null || inStream == null) {
+                                Log.e(TAG, "inStream or outStream is null in initiateClientSocket() Thread, on relay attempt");
+                                showToastie("There was a problem with the Wifi connection. Close both apps and try again.");
+                                return;
+                            }
+
                             //send ack to controller //TODO: maybe need to wait for controller to confirm ack?
                             outStream.write(outData);
                         }
@@ -711,6 +719,12 @@ public class MainActivity extends AppCompatActivity {
                 humanModelMat = new MatOfPoint3f();
 
                 humanActualMat = new MatOfPoint2f();
+
+
+
+                /*
+                mHumanFollower = new HumanFollower(usbController, MainActivity.this);
+                mHumanFollower.start();*/
             }
 
             else {

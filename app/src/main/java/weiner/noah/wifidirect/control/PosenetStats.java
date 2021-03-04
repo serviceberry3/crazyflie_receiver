@@ -157,7 +157,6 @@ public class PosenetStats {
 
 
 
-
         //Macros for 'looking' variable
         private final int LOOKING_LEFT = 0;
         private final int LOOKING_RIGHT = 1;
@@ -1164,7 +1163,7 @@ public class PosenetStats {
                 Log.i(TAG, "cameraManager.openCamera()");
 
                 //DELIBERATELY CRASH THE APP
-                int test = 5 / 0;
+                //int test = 5 / 0;
                 cameraManager.openCamera(cameraId, new stateCallback(), backgroundHandler);
             }
             catch (InterruptedException e) {

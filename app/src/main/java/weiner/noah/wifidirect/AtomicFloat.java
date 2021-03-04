@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AtomicFloat extends Number {
         private final AtomicInteger bits;
 
+        //initialize value to 0
         public AtomicFloat() {
             this(0f);
         }
