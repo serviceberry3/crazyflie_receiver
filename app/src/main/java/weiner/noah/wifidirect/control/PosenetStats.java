@@ -81,20 +81,22 @@ import weiner.noah.wifidirect.utils.ImageUtils;
 public class PosenetStats {
     private Posenet posenet;
     private MainActivity mainActivity;
+    private HumanFollower caller;
     private final String TAG = "PosenetStats";
 
     //whether we have both eyes of human in the frame. Determines whether or not we can calculate dist to the human
     private boolean bothEyesFound = false;
 
-    private Thread mLiveFeedThread;
+    private Thread mLiveFeedThread = null;
     private PosenetLiveStatFeed posenetLiveStatFeed;
 
     private AtomicFloat dist_to_hum = new AtomicFloat();
 
 
-    public PosenetStats(Posenet posenet, MainActivity mainActivity) {
+    public PosenetStats(Posenet posenet, MainActivity mainActivity, HumanFollower caller) {
         this.posenet = posenet;
         this.mainActivity = mainActivity;
+        this.caller = caller;
 
         //On construction, we'd like to launch a background thread which runs Posenet on incoming images from front-facing camera,
         //and allows polling of the data (distance from human, angle of human, etc)
@@ -102,8 +104,20 @@ public class PosenetStats {
     }
 
     public void start() {
-        mLiveFeedThread = new Thread(new PosenetLiveStatFeed());
+        posenetLiveStatFeed = new PosenetLiveStatFeed();
+        mLiveFeedThread = new Thread(posenetLiveStatFeed);
         mLiveFeedThread.start();
+    }
+
+    public void stop() {
+        //end the LiveFeedThread
+        if (mLiveFeedThread != null) {
+            mLiveFeedThread.interrupt();
+        }
+        mLiveFeedThread = null;
+
+        posenetLiveStatFeed.stopBackgroundThread();
+        posenetLiveStatFeed.closeCamera();
     }
 
     public float getDistToHum() {
@@ -373,6 +387,9 @@ public class PosenetStats {
                 cameraOpenCloseLock.release();
                 cameraDevice.close();
                 cameraDevice = null;
+
+                //kill the calling HumanFollower
+                caller.kill();
             }
 
             @Override
@@ -380,6 +397,9 @@ public class PosenetStats {
                 Log.e(TAG, "CAMERA ERROR");
                 onDisconnected(cameraDevice);
                 mainActivity.finish();
+
+                //kill the calling HumanFollower
+                caller.kill();
             }
         }
 
@@ -508,7 +528,7 @@ public class PosenetStats {
             }
 
             try {
-                if (backgroundThread!=null) {
+                if (backgroundThread != null) {
                     //terminate the background thread by joining
                     backgroundThread.join();
                 }
@@ -850,6 +870,10 @@ public class PosenetStats {
             //check whether both left and right eyes were in the frame, and set bothEyesFound accordingly
             bothEyesFound = (rightEyeFound & leftEyeFound) == 1;
 
+            //notify HumanFollower that there's new distance data available
+            caller.onNewDistanceData();
+            caller.setFresh(true);
+
             //ONLY EVERY THIRD FRAME, maybe?
             //check that all of the keypoints for a human body bust area were found
             if (humanActualRaw[0] != null && humanActualRaw[1] != null && humanActualRaw[2] != null && humanActualRaw[3] != null
@@ -1161,6 +1185,11 @@ public class PosenetStats {
                 }
 
                 Log.i(TAG, "cameraManager.openCamera()");
+
+                if (cameraId == null) {
+                    showToast("There's an issue with the camera connection.");
+                    return;
+                }
 
                 //DELIBERATELY CRASH THE APP
                 //int test = 5 / 0;

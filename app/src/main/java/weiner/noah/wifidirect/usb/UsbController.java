@@ -395,7 +395,6 @@ public class UsbController {
         //display sending timestamp
         sendTimeValue = System.currentTimeMillis();
 
-
         synchronized (sSendLock) {
             //wake up sSendLock for bulk transfer
             sSendLock.notify();

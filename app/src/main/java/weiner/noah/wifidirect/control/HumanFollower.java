@@ -31,15 +31,21 @@ public class HumanFollower {
     private AtomicBoolean following = new AtomicBoolean(false);
     private AtomicBoolean landing = new AtomicBoolean(false);
     private AtomicBoolean kill = new AtomicBoolean(false);
+    private AtomicBoolean freshPosenetDistData = new AtomicBoolean(false);
 
     private PosenetStats posenetStats;
 
-    private final int CORRECTION_RELAX = 10;
+    private final int CORRECTION_RELAX = 5;
+    private final float CORRECTION_VEL = 0.2f;
+    private final float FOLLOWING_FAR_BOUND = 0.57f;
+    private final float FOLLOWING_NEAR_BOUND = 0.37f;
+
+    private static final Object[] xAxisUpdateLock = new Object[]{};
 
     public HumanFollower(UsbController usbController, MainActivity mainActivity) {
         this.usbController = usbController;
         this.mainActivity = mainActivity;
-        posenetStats = new PosenetStats(new Posenet(mainActivity.getApplicationContext(), "posenet_model.tflite", Device.GPU), mainActivity);
+        posenetStats = new PosenetStats(new Posenet(mainActivity.getApplicationContext(), "posenet_model.tflite", Device.GPU), mainActivity, this);
     }
 
     /* Pseudocode
@@ -195,6 +201,9 @@ public class HumanFollower {
                 //STOP
                 sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
 
+                //end the Posenet thread
+                posenetStats.stop();
+
                 //re-enable joystick stream
                 mainActivity.setRelay(true);
 
@@ -226,6 +235,54 @@ public class HumanFollower {
                 mPaused = false;
                 //wake up all threads that are waiting on this object's monitor
                 mPauseLock.notifyAll();
+            }
+        }
+    }
+
+    //Runnable that indefinitely streams HeightHold packets to the drone to make it hover, until the 'Land' button is pressed.
+    //This thread is used in addition to the followrunnable thread
+    class HoverRunnable implements Runnable {
+        private final Object mPauseLock;
+        private boolean mPaused;
+        private boolean mFinished;
+
+        public HoverRunnable() {
+            mPauseLock = new Object();
+            mPaused = false;
+            mFinished = false;
+        }
+
+        /* Stream HeightHold packets with no pitch, roll, yaw, and a height of TARG_HEIGHT, indefinitely, until the 'Land' button is pressed
+         * NOTE: JoystickRunnable should already be paused at this point
+         */
+        @Override
+        public void run() {
+            try {
+                while (true) {
+                    //HOVER SEQUENCE
+                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+
+                    //Check if a kill has been requested. If so, end this thread.
+                    //NOTE: DRONE WILL FALL
+                    if (killCheck()) {
+                        return;
+                    }
+
+                    //Check of a land has been requested. If so, return.
+                    if (landCheck()) {
+                        //The landing thread has begun at this point
+                        return;
+                    }
+
+                    Thread.sleep(100);
+                }
+            }
+
+            //This thread can be interrupted by hitting 'Kill'. In that case, stop and resume the joystick streaming
+            catch (InterruptedException e) {
+                kill.set(false);
+                e.printStackTrace();
+                //thread now stops and goes home
             }
         }
     }
@@ -266,6 +323,17 @@ public class HumanFollower {
             Log.i(LOG_TAG, "sendBulkTransfer got back correct ack from drone 0x09");
     }
 
+
+    public void onNewDistanceData() {
+        synchronized (xAxisUpdateLock) {
+            Log.i(LOG_TAG, "Notify xAxisUpdate");
+            xAxisUpdateLock.notify();
+        }
+    }
+
+    public void setFresh(boolean requested) {
+        freshPosenetDistData.set(requested);
+    }
 
 
     //Runnable that safely lands the drone, starting from TARG_HEIGHT
@@ -362,21 +430,37 @@ public class HumanFollower {
             //at this point, activate Posenet human tracking (separate thread)
             posenetStats.start();
 
+            float dist_to_hum;
+
             //mainActivity.setRelay(true);
 
             //hover indefinitely
             while (true) {
-                //get distance from the human
-                float dist_to_hum = posenetStats.getDistToHum();
-                Log.i(CTRL, "From HumFollower: dist to hum is " + dist_to_hum);
+                //notify the HoverRunnable that we're about to go to sleep for about 150-220 ms, so HoverRunnable should send hover pkt in about
+
+            /*
+                Log.i(LOG_TAG, "starting Wait for new dist data");
+                //wait for pulse from PosenetStats, indicating that there's new distance data
+                synchronized (xAxisUpdateLock) {
+                    try {
+                        //have this thread wait until PosenetStats calls onNewDistanceData()
+                        xAxisUpdateLock.wait();
+                    }
+
+                    catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+                Log.i(LOG_TAG, "wait for dist data complete");*/
 
 
-                //ONE IMPLEMENTATION
 
+                //ONE IMPLEMENTATION - USE RELAX TIME
+                /*
                 //we'd like to stay in the distance range 0.4-0.6m
                 if (dist_to_hum == -1.0f || waitOnLock || dist_to_hum == 0f) {
                     //if human not in frame or it's too early, just hover in place
-                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));             //FIXME: uncomment packet sends
+                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
 
                     //if we're waiting safely for dist from human to update
                     if (waitOnLock) {
@@ -395,20 +479,20 @@ public class HumanFollower {
                         }
                     }
                 }
-                else if (dist_to_hum < 0.4f) {
+                else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
                     Log.i(CTRL, "Human too close, pitch backward one packet...");
 
                     //if human too close, pitch backward one packet
-                    sendPacket(new HeightHoldPacket(-0.5f, 0, 0, TARG_HEIGHT));
+                    sendPacket(new HeightHoldPacket(-CORRECTION_VEL, 0, 0, TARG_HEIGHT));
 
                     //lock any corrections for CORRECTION_RELAX cycles, so that we don't get ahead of the Posenet thread
                     waitOnLock = true;
                 }
-                else if (dist_to_hum > 0.7f) {
+                else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
                     Log.i(CTRL, "Human too far, pitch forward one packet...");
 
                     //if human too far, pitch forward one packet
-                    sendPacket(new HeightHoldPacket(0.5f, 0, 0, TARG_HEIGHT));
+                    sendPacket(new HeightHoldPacket(CORRECTION_VEL, 0, 0, TARG_HEIGHT));
 
                     //lock any corrections for CORRECTION_RELAX cycles, so that we don't get ahead of the Posenet thread
                     waitOnLock = true;
@@ -418,13 +502,51 @@ public class HumanFollower {
                 else {
                     Log.i(CTRL, "Human in frame, at appropriate dist, sending hover pkt");
                     sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+                }*/
+
+                //OTHER IMPLEMENTATION - SYNCHRONIZED ON XAXISUPDATELOCK OBJECT
+
+                if (freshPosenetDistData.get()) {
+                    //ready to update distance from human
+                    dist_to_hum = posenetStats.getDistToHum();
+                    Log.i(CTRL, "From HumFollower: dist to hum is " + dist_to_hum);
+
+
+                    //we'd like to stay in the distance range 0.4-0.6m
+                    if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
+                        Log.i(CTRL, "Human not found, sending hover pkt");
+
+                        //if human not in frame or it's too early, just hover in place
+                        sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+
+                    } else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
+                        Log.i(CTRL, "Human too close, pitch backward one packet...");
+
+                        //if human too close, pitch backward one packet
+                        sendPacket(new HeightHoldPacket(-CORRECTION_VEL, 0, 0, TARG_HEIGHT));
+                    } else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
+                        Log.i(CTRL, "Human too far, pitch forward one packet...");
+
+                        //if human too far, pitch forward one packet
+                        sendPacket(new HeightHoldPacket(CORRECTION_VEL, 0, 0, TARG_HEIGHT));
+                    }
+
+                    //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
+                    else {
+                        Log.i(CTRL, "Human in frame, at appropriate dist, sending hover pkt");
+                        sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+                    }
+
+                    //set Posenet distance data NOT fresh anymore
+                    freshPosenetDistData.set(false);
                 }
 
+                //otherwise data isn't fresh, just hover in place
+                else {
+                    Log.i(CTRL, "Dist data not fresh, sending hover pkt");
+                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
+                }
 
-                //TODO: problem: distance won't be updated fast enough, since Posenet pretty slow. That means should wait several cycles before applying another correction
-
-                //HOVER
-                //sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
 
                 //Check if a kill has been requested. If so, end this thread.
                 //NOTE: DRONE WILL FALL
@@ -438,8 +560,10 @@ public class HumanFollower {
                     return;
                 }
 
+
+                //Posenet should already delay us about 20ms
                 try {
-                    Thread.sleep(90);
+                    Thread.sleep(90);  //ORIGINALLY: 90ms
                 }
 
                 //if interrupted by kill()

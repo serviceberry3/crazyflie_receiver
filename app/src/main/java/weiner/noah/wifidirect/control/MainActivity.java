@@ -701,9 +701,9 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(connectionChangedReceiver, connectionfilter);
         registerReceiver(p2pStatusReceiver, p2pEnabled);
 
-        //mHumanFollower = new HumanFollower(usbController, MainActivity.this);
-
-       // mHumanFollower.start();
+        /*
+        mHumanFollower = new HumanFollower(usbController, MainActivity.this);
+        mHumanFollower.start();*/
     }
 
     //use this OpenCV loader callback to instantiate Mat objects, otherwise we'll get an error about Mat not being found
