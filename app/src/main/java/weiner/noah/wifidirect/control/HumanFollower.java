@@ -192,6 +192,7 @@ public class HumanFollower {
 
 
                     if (killCheck()) {
+                        //end this thread
                         return;
                     }
 
@@ -221,6 +222,7 @@ public class HumanFollower {
 
                 kill.set(false);
                 e.printStackTrace();
+
                 //thread now stops and goes home
             }
         }
@@ -301,7 +303,7 @@ public class HumanFollower {
 
         Log.i(LOG_TAG, "Sending next packet via sendBulkTransfer...");
 
-        /*
+
         if (dataOut.length == 15) {
             Log.i(LOG_TAG, String.format("Phone sending USB packet 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X " +
                             "0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X",
@@ -321,8 +323,7 @@ public class HumanFollower {
                     dataOut[0], dataOut[1], dataOut[2], dataOut[3], dataOut[4],
                     dataOut[5], dataOut[6], dataOut[7], dataOut[8], dataOut[9], dataOut[10], dataOut[11], dataOut[12],
                     dataOut[13], dataOut[14], dataOut[15], dataOut[16], dataOut[17]));
-        }*/
-
+        }
 
         usbController.sendBulkTransfer(dataOut, ack);
 
@@ -365,7 +366,7 @@ public class HumanFollower {
             mFinished = false;
         }
 
-        private void launchSequence() {
+        private int launchSequence() {
             //Unlock startup thrust protection
             sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
 
@@ -376,7 +377,7 @@ public class HumanFollower {
 
                 //always check if 'Kill' button has been pressed
                 if (killCheck()) {
-                    return;
+                    return -1;
                 }
 
                 try {
@@ -389,6 +390,9 @@ public class HumanFollower {
                     following.set(false);
                     kill.set(false);
                     //thread now stops and goes home
+
+                    //notify FollowRunnable thread to return
+                    return -1;
                 }
 
                 cnt[0]++;
@@ -396,30 +400,89 @@ public class HumanFollower {
 
             cnt[0] = 0;
 
-            /*
-            while (cnt[0] < 2) {
-                //move forward test
-                sendPacket(new HeightHoldPacket(1, 0, 0, TARG_HEIGHT));
+            return 0;
+        }
 
-                //always check if 'Kill' button has been pressed
-                if (killCheck()) {
-                    return;
+        private int follow_control() {
+            float dist_to_hum;
+
+            //default to no adjustments
+            float vx = 0, vy = 0, yaw = 0;
+
+            if (freshPosenetDistData.get()) {
+                //ready to update distance from human
+                dist_to_hum = posenetStats.getDistToHum();
+                Log.i(CTRL, "From HumFollower: dist to hum is " + dist_to_hum);
+
+
+                //we'd like to stay in the distance range ~0.4-0.6m
+                if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
+                    Log.i(CTRL, "Human not found, sending hover pkt");
+
+                    //if human not in frame or it's too early, just hover in place
+                }
+                else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
+                    Log.i(CTRL, "Human too close, pitch backward one packet...");
+
+                    //if human too close, pitch backward one packet
+                    vx = -CORRECTION_VEL;
+                }
+                else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
+                    Log.i(CTRL, "Human too far, pitch forward one packet...");
+
+                    //if human too far, pitch forward one packet
+                    vx = CORRECTION_VEL;
                 }
 
-                try {
-                    Thread.sleep(50);
+                //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
+                else {
+                    Log.i(CTRL, "Human in frame, at appropriate dist, sending hover pkt");
                 }
 
-                //if interrupted by kill()
-                catch (InterruptedException e) {
-                    e.printStackTrace();
-                    following.set(false);
-                    kill.set(false);
-                    //thread now stops and goes home
-                }
+                //set Posenet distance data NOT fresh anymore
+                freshPosenetDistData.set(false);
+            }
 
-                cnt[0]++;
-            }*/
+            //otherwise data isn't fresh, just hover in place
+            else {
+                Log.i(CTRL, "Dist data not fresh, sending hover pkt");
+            }
+
+            //send the packet with appropriate correction settings
+            sendPacket(new HeightHoldPacket(vx, vy, yaw, TARG_HEIGHT));
+
+
+            //Check if a kill has been requested. If so, end this thread.
+            //NOTE: DRONE WILL FALL
+            if (killCheck()) {
+                return -1;
+            }
+
+            //Check of a land has been requested. If so, return.
+            if (landCheck()) {
+                //The landing thread has begun at this point
+                return -1;
+            }
+
+            //Posenet should already delay us about 20ms
+            try {
+                Thread.sleep(90);  //ORIGINALLY: 90ms
+            }
+
+            //if interrupted by kill()
+            catch (InterruptedException e) {
+                //stop Posenet backgnd thread
+                posenetStats.stop();
+
+                e.printStackTrace();
+                following.set(false);
+                kill.set(false);
+
+                //notify FollowRunnable thread to exit
+                return -1;
+            }
+
+            return 0;
         }
 
 
@@ -428,8 +491,12 @@ public class HumanFollower {
             boolean waitOnLock = false;
 
             Log.i(LOG_TAG, "Running FollowRunnable launchSequence()");
+
             //launch the drone up to TARG_HEIGHT
-            launchSequence();              //FIXME: CHANGED
+            if (launchSequence() != 0) {
+                //something went wrong
+                return;
+            }
 
             //'landing' should already have been reset to false at this time
             //FIXME: it makes more sense for resetting 'landing' to false to go here
@@ -437,15 +504,11 @@ public class HumanFollower {
             //at this point, activate Posenet human tracking (separate thread)
             posenetStats.start();
 
-            float dist_to_hum;
-
-            //mainActivity.setRelay(true);
-
-            //hover indefinitely
+            //hover indefinitely, following the human
             while (true) {
                 //notify the HoverRunnable that we're about to go to sleep for about 150-220 ms, so HoverRunnable should send hover pkt in about
 
-            /*
+                /*
                 Log.i(LOG_TAG, "starting Wait for new dist data");
                 //wait for pulse from PosenetStats, indicating that there's new distance data
                 synchronized (xAxisUpdateLock) {
@@ -459,7 +522,6 @@ public class HumanFollower {
                     }
                 }
                 Log.i(LOG_TAG, "wait for dist data complete");*/
-
 
 
                 //ONE IMPLEMENTATION - USE RELAX TIME
@@ -511,76 +573,12 @@ public class HumanFollower {
                     sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
                 }*/
 
-                //OTHER IMPLEMENTATION - SYNCHRONIZED ON XAXISUPDATELOCK OBJECT
+                //OTHER IMPLEMENTATION IS IN follow() - SYNCHRONIZED ON XAXISUPDATELOCK OBJECT
 
-                if (freshPosenetDistData.get()) {
-                    //ready to update distance from human
-                    dist_to_hum = posenetStats.getDistToHum();
-                    Log.i(CTRL, "From HumFollower: dist to hum is " + dist_to_hum);
-
-
-                    //we'd like to stay in the distance range 0.4-0.6m
-                    if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
-                        Log.i(CTRL, "Human not found, sending hover pkt");
-
-                        //if human not in frame or it's too early, just hover in place
-                        sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
-
-                    } else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
-                        Log.i(CTRL, "Human too close, pitch backward one packet...");
-
-                        //if human too close, pitch backward one packet
-                        sendPacket(new HeightHoldPacket(-CORRECTION_VEL, 0, 0, TARG_HEIGHT));
-                    } else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
-                        Log.i(CTRL, "Human too far, pitch forward one packet...");
-
-                        //if human too far, pitch forward one packet
-                        sendPacket(new HeightHoldPacket(CORRECTION_VEL, 0, 0, TARG_HEIGHT));
-                    }
-
-                    //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
-                    else {
-                        Log.i(CTRL, "Human in frame, at appropriate dist, sending hover pkt");
-                        sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
-                    }
-
-                    //set Posenet distance data NOT fresh anymore
-                    freshPosenetDistData.set(false);
-                }
-
-                //otherwise data isn't fresh, just hover in place
-                else {
-                    Log.i(CTRL, "Dist data not fresh, sending hover pkt");
-                    sendPacket(new HeightHoldPacket(0, 0, 0, TARG_HEIGHT));
-                }
-
-
-                //Check if a kill has been requested. If so, end this thread.
-                //NOTE: DRONE WILL FALL
-                if (killCheck()) {
+                //control loop
+                if (follow_control() != 0) {
+                    //this means a kill or land was requested
                     return;
-                }
-
-                //Check of a land has been requested. If so, return.
-                if (landCheck()) {
-                    //The landing thread has begun at this point
-                    return;
-                }
-
-
-                //Posenet should already delay us about 20ms
-                try {
-                    Thread.sleep(90);  //ORIGINALLY: 90ms
-                }
-
-                //if interrupted by kill()
-                catch (InterruptedException e) {
-                    //stop Posenet backgnd thread
-                    posenetStats.stop();
-
-                    e.printStackTrace();
-                    following.set(false);
-                    kill.set(false);
                 }
             }
         }
