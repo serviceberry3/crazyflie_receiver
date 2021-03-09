@@ -116,8 +116,11 @@ public class PosenetStats {
         }
         mLiveFeedThread = null;
 
-        posenetLiveStatFeed.stopBackgroundThread();
-        posenetLiveStatFeed.closeCamera();
+        if (posenetLiveStatFeed != null) {
+            posenetLiveStatFeed.closeCamera();
+            posenetLiveStatFeed.stopBackgroundThread();
+            posenetLiveStatFeed = null;
+        }
     }
 
     public float getDistToHum() {

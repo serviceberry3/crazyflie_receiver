@@ -137,7 +137,10 @@ public class HumanFollower {
             //reset kill to false, atomically
             kill.set(false);
 
-            //make sure launching, landing, and hovering are all reset to false
+            //if we're following, the posenet backgnd thread is running, so stop it now
+            posenetStats.stop();
+
+            //make sure following and landing are all reset to false
             landing.set(false); following.set(false);
 
             //let background thread know to return if necessary
@@ -213,6 +216,9 @@ public class HumanFollower {
 
             //If a kill was requested, stop now
             catch (InterruptedException e) {
+                //make sure Posenet backgnd thread was stopped
+                posenetStats.stop();
+
                 kill.set(false);
                 e.printStackTrace();
                 //thread now stops and goes home
@@ -295,6 +301,7 @@ public class HumanFollower {
 
         Log.i(LOG_TAG, "Sending next packet via sendBulkTransfer...");
 
+        /*
         if (dataOut.length == 15) {
             Log.i(LOG_TAG, String.format("Phone sending USB packet 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X " +
                             "0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X",
@@ -314,7 +321,7 @@ public class HumanFollower {
                     dataOut[0], dataOut[1], dataOut[2], dataOut[3], dataOut[4],
                     dataOut[5], dataOut[6], dataOut[7], dataOut[8], dataOut[9], dataOut[10], dataOut[11], dataOut[12],
                     dataOut[13], dataOut[14], dataOut[15], dataOut[16], dataOut[17]));
-        }
+        }*/
 
 
         usbController.sendBulkTransfer(dataOut, ack);
@@ -568,6 +575,9 @@ public class HumanFollower {
 
                 //if interrupted by kill()
                 catch (InterruptedException e) {
+                    //stop Posenet backgnd thread
+                    posenetStats.stop();
+
                     e.printStackTrace();
                     following.set(false);
                     kill.set(false);

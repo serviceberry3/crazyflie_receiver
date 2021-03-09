@@ -804,15 +804,15 @@ public class UsbController {
                     return;
                 }
 
-                completedRequest = null;
+                //reset the found endpoint to null
+                completedRequestEndpt = null;
 
-                /*
                 //make sure we have a valid UsbDeviceConnection
                 if (connection == null) {
                     Log.e(TAG, "ReadRunnable: connection is null!");
                     showToast("There was a problem with the USB connection. Please close the app and try again.");
                     return;
-                }*/
+                }
 
                 //make sure queuing operation succeeds
                 if (readingRequest.queue(buffer, 1)) {  //FIXME
@@ -823,18 +823,20 @@ public class UsbController {
                         Log.i(TAG, "requestWait() for in");
                         completedRequest = connection.requestWait();
 
-                        //if (completedRequest != null)
+                        if (completedRequest != null)
                             completedRequestEndpt = completedRequest.getEndpoint();
-                        //else
-                           // Log.i(TAG, "Completedrequest is null!");
+                        else
+                            Log.i(TAG, "Completedrequest is null!");
                     }
                     Log.i(TAG, "completedRequest is in");
 
 
+                    //CMT OUT
                     /*
                     //stamp time of data reception
                     receiveTimeValue = System.currentTimeMillis();
                     latency = receiveTimeValue - sendTimeValue;
+                    //END CMT OUT
                     */
 
                     //wait for the read request to be completed
@@ -858,12 +860,17 @@ public class UsbController {
                         else {
                             Log.i(TAG, "ReadRunnable Queued phone ack successfully");
 
+
+                            //CMT OUT
+
                             /*
                             //FIXME: Do we need to wait for the send request queueing operation to succeed? Probably not, since we already check all acks...
                             while (completedRequest != sendingRequest) {
                                 Log.i(TAG, "requestWait() for out");
                                 completedRequest = connection.requestWait();
                             }*/
+
+                            //END CMT OUT
                         }
                         //don't block after sending 0x12 ack
                     }
@@ -883,6 +890,7 @@ public class UsbController {
             }
         }
     }
+
 }
 
 
