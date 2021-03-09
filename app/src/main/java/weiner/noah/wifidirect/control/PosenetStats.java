@@ -257,7 +257,7 @@ public class PosenetStats {
         private CaptureRequest previewRequest = null; //nullable
 
         /**
-         * A [Semaphore] to prevent the app from exiting before closing the camera.
+         * A [Semaphore] to prevent the app from exiting before closing the camera, allows one thread access at a time.
          */
         private Semaphore cameraOpenCloseLock = new Semaphore(1);
 
@@ -463,7 +463,8 @@ public class PosenetStats {
                                     // Finally, we start displaying the camera preview.
                                     previewRequest = previewRequestBuilder.build();
                                     captureSession.setRepeatingRequest(previewRequest, new captureCallback(), backgroundHandler);
-                                } catch (CameraAccessException e) {
+                                }
+                                catch (CameraAccessException e) {
                                     Log.e(TAG, e.toString());
                                 }
                             }
@@ -524,6 +525,14 @@ public class PosenetStats {
          */
         private void stopBackgroundThread() {
             if (backgroundThread != null)  {
+                //Quits the handler thread's looper safely.
+                //
+                //Causes handler thread's looper to terminate as soon as all remaining messages in message queue that are already due to be delivered have been handled.
+                //Pending delayed messages with due times in the future will not be delivered.
+                //
+                //Any attempt to post messages to queue after looper is asked to quit will fail.
+                //
+                //If thread has not been started or has finished (that is if getLooper() returns null), then false is returned. Otherwise thread's looper is asked to quit and true is returned
                 backgroundThread.quitSafely();
             }
 
@@ -532,6 +541,8 @@ public class PosenetStats {
                     //terminate the background thread by joining
                     backgroundThread.join();
                 }
+
+                //clear background thread vars
                 backgroundThread = null;
                 backgroundHandler = null;
             }
@@ -1209,16 +1220,24 @@ public class PosenetStats {
          * Closes the current [CameraDevice].
          */
         private void closeCamera() {
+            //there is no capture session, nothing we can do
             if (captureSession == null) {
                 return;
             }
 
             try {
+                //get semaphore
                 cameraOpenCloseLock.acquire();
+
+                //close the CameraCaptureSession
                 captureSession.close();
                 captureSession = null;
+
+                //close the CameraDevice
                 cameraDevice.close();
                 cameraDevice = null;
+
+                //close the ImageReader
                 imageReader.close();
                 imageReader = null;
             }

@@ -21,6 +21,8 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
+import weiner.noah.wifidirect.control.MainActivity;
+
 public class UsbController {
     public final Context mApplicationContext;
     public final UsbManager mUsbManager;
@@ -32,7 +34,7 @@ public class UsbController {
     private final int PID;
     protected static final String ACTION_USB_PERMISSION = "weiner.noah.USB_PERMISSION";
     private volatile int direction = 0, transferring = 0;
-    public final Activity activity;
+    public final MainActivity activity;
     public int error;
 
     //keep track of USB data transfer latency
@@ -73,7 +75,7 @@ public class UsbController {
     private BroadcastReceiver mPermissionReceiver = new PermissionReceiver(mPermissionListener);
 
 
-    public UsbController (Activity parentActivity, IUsbConnectionHandler connectionHandler, int vid, int pid, Activity act) {
+    public UsbController (Activity parentActivity, IUsbConnectionHandler connectionHandler, int vid, int pid, MainActivity act) {
         mApplicationContext = parentActivity.getApplicationContext();
         mConnectionHandler = connectionHandler;
         mUsbManager = (UsbManager) mApplicationContext.getSystemService(Context.USB_SERVICE);
@@ -82,6 +84,16 @@ public class UsbController {
         activity = act;
         error = 0;
         init();
+    }
+
+    private void showToast(final String text) {
+        if (activity != null)
+            activity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(activity, text, Toast.LENGTH_SHORT).show();
+                }
+            });
     }
 
     public UsbDeviceConnection getConnection() {
@@ -164,6 +176,12 @@ public class UsbController {
             //open communication with the device
             connection = mUsbManager.openDevice(device);
 
+            if (connection == null) {
+                Log.e(TAG, "openConnxnOnReceivedPerm(): openDevice() failed, connection is null!");
+                showToast("There was a problem opening the USB connection. Please close the app and try again");
+                return;
+            }
+
             Log.i("USBTAG", "Getting interface...");
             UsbInterface usb2serial = device.getInterface(0);
             Log.i("USBTAG", "Interface gotten");
@@ -214,6 +232,13 @@ public class UsbController {
             readingRequest.initialize(connection, in);
             sendingRequest.initialize(connection, out);
             pktSendRequest.initialize(connection, out);
+
+            //for safety, check one more time that the UsbDeviceConnection is non-null
+            if (connection == null) {
+                Log.e(TAG, "openConnxnOnReceivedPerm(): connection is null!");
+                showToast("There was a problem opening the USB connection. Please close the app and try again");
+                return;
+            }
 
 
             //start receiving data from drone asynchronously
@@ -319,7 +344,7 @@ public class UsbController {
                         catch (InterruptedException e) {
                             //on interrupt exception, if stop is set, then call onStopped()
                             if (mStop) {
-                                Log.e("ERROR", "InterruptedException in synchron");
+                                Log.e(TAG, "InterruptedException in synchron");
                                 mConnectionHandler.onUsbStopped();
                                 return;
                             }
@@ -330,7 +355,7 @@ public class UsbController {
                     Log.d("THREAD", String.format("Value of direction is: %d", direction));
 
                     if (mStop) {
-                        Log.e("ERROR", "Stopped after the sending thread was notify()ed, returning...");
+                        Log.e(TAG, "Stopped after the sending thread was notify()ed, returning...");
                         mConnectionHandler.onUsbStopped();
                         transferring = 0;
                         return;
@@ -674,7 +699,7 @@ public class UsbController {
 
     //stop usb data transfer
     public void stop() {
-        Log.i(TAG, "Stop() called on UsbController instance");
+        Log.i(TAG, "stop(): called on UsbController instance");
 
         //IGNORE FOR NOW, ONLY NEEDED IF USING RECEIVERUNNABLE
         /*
@@ -703,19 +728,16 @@ public class UsbController {
 
         //readingRequest.close();
 
+
         //terminate the data transfer thread by joining it to main UI thread, also terminate receiving thread
-        try { //cleaning up threads
-            if (mUsbThread != null) {
-                Log.d("DBUG", "Joining UsbThread...");
-                mUsbThread.join();
-            }
-            if (mReceiveThread != null) {
-                Log.d("DBUG", "Joining ReceiveThread...");
-                mReceiveThread.join();
-            }
-        }
-        catch (InterruptedException e) {
-            e.printStackTrace();
+        /*
+        if (mUsbThread != null) {
+            Log.d("DBUG", "Joining UsbThread...");
+            mUsbThread.join();
+        }*/
+        if (mReceiveThread != null) {
+            Log.d(TAG, "Interrupting ReadRunnable...");
+            mReceiveThread.interrupt();
         }
 
         //reset stop flag, current usbrunnable and readrunnable instance, and both data transfer threads
@@ -726,7 +748,8 @@ public class UsbController {
         mReceiveThread = null;
 
         //Close the USB connection
-        connection.close();
+        if (connection != null)
+            connection.close();
 
         //try to unregister the permission receiver
         try {
@@ -770,21 +793,40 @@ public class UsbController {
             final ByteBuffer outBuffer = ByteBuffer.allocate(1);
             outBuffer.put((byte)0x12);
 
-            UsbEndpoint completedRequest = null;
-            UsbRequest completedRqst = null;
+            UsbEndpoint completedRequestEndpt = null;
+            UsbRequest completedRequest;
 
             //wait for data to become available to receive
             while (true) {
+                if (Thread.interrupted()) {
+                    //We've been interrupted, return
+                    Log.i(TAG, "ReadRunnable: interrupted, return");
+                    return;
+                }
+
                 completedRequest = null;
+
+                /*
+                //make sure we have a valid UsbDeviceConnection
+                if (connection == null) {
+                    Log.e(TAG, "ReadRunnable: connection is null!");
+                    showToast("There was a problem with the USB connection. Please close the app and try again.");
+                    return;
+                }*/
 
                 //make sure queuing operation succeeds
                 if (readingRequest.queue(buffer, 1)) {  //FIXME
                     Log.d(TAG, "WAITING FOR INCOMING USB DATA...");
 
                     //wait for read request to finish
-                    while (completedRequest != in) {
+                    while (completedRequestEndpt != in) {
                         Log.i(TAG, "requestWait() for in");
-                        completedRequest = connection.requestWait().getEndpoint();
+                        completedRequest = connection.requestWait();
+
+                        //if (completedRequest != null)
+                            completedRequestEndpt = completedRequest.getEndpoint();
+                        //else
+                           // Log.i(TAG, "Completedrequest is null!");
                     }
                     Log.i(TAG, "completedRequest is in");
 
@@ -818,9 +860,9 @@ public class UsbController {
 
                             /*
                             //FIXME: Do we need to wait for the send request queueing operation to succeed? Probably not, since we already check all acks...
-                            while (completedRqst != sendingRequest) {
+                            while (completedRequest != sendingRequest) {
                                 Log.i(TAG, "requestWait() for out");
-                                completedRqst = connection.requestWait();
+                                completedRequest = connection.requestWait();
                             }*/
                         }
                         //don't block after sending 0x12 ack

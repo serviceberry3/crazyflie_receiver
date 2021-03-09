@@ -246,7 +246,7 @@ public class MainActivity extends AppCompatActivity {
                     usbController.stop();
                 }
 
-                //make new UsbController
+                //make new UsbController (redo entire connection setup)
                 usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
             }
         });
