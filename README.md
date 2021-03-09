@@ -1,5 +1,8 @@
 UPDATE: the app is intended to be paired with the [crazyflie_usb](https://github.com/serviceberry3/crazyflie_usb) app running on __another Android device__. But you can also use it to test a basic Wifi Direct connection __between two Android devices__, or __between a Linux PC (tested on Ubuntu) and an Android device__.
 
+# Other Updates #
+03/05/21: HumanFollower now works for only y-axis following.
+
 # Android-Android #  
 To use between two Androids, open this app on both devices, hit "Discover Peers" on both, and then simultaneously click on the respective target device (the list entry) on both screens to initiate the connection. Sometimes it takes up to ~30 seconds to connect. If it's taking longer than that, try restarting the process.
 
@@ -17,9 +20,10 @@ device_name=My P2P Device
 (the device name is optional). You also might need to change all instances of wlp3s0 in the shell script to wlan0 depending on what your interface is named (run ifconfig to see).  
 
 
-# NOTES #  
+# NOTES/ISSUES #  
 * I've been having some problems with dhclient hanging when trying to assign an IP to the p2p-wlan0-0 interface (last line of the shell script). I'm working on figuring out why. 
 * Use the Android app onboard a Crazyflie quadcopter to connect with my version of the Crazyflie Android client in [crazyflie_usb](https://github.com/serviceberry3/crazyflie_usb).  
+* __KNOWN ISSUE__: HumanFollower.kill() works, but for some reason if you try to start up the human follower again after a kill, the drone will drift. So for now, please RESTART THE APPS IF YOU EVER USE KILL.
 
 
 
