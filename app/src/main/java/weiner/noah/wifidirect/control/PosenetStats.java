@@ -923,6 +923,7 @@ public class PosenetStats {
                 torsoTiltCalculatedCorrectly = true;
             }
             else {
+                Log.i(TAG, "Posenet: UNABLE to calculate torso tilt ratio!!");
                 torsoTiltCalculatedCorrectly = false;
             }
 

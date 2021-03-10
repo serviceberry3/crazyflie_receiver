@@ -7,6 +7,7 @@ import org.tensorflow.lite.examples.noah.lib.Device;
 import org.tensorflow.lite.examples.noah.lib.Posenet;
 
 import java.util.Objects;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import weiner.noah.wifidirect.crtp.CommanderPacket;
@@ -44,10 +45,28 @@ public class HumanFollower {
     private final PosenetStats posenetStats;
 
     private final int CORRECTION_RELAX = 5;
-    private final float CORRECTION_VEL = 0.2f;
+    private final float CORRECTION_VEL_PR = 0.2f;
+    private final float CORRECTION_VEL_YAW = 15f;
     private final float FOLLOWING_FAR_BOUND = 0.57f;
     private final float FOLLOWING_NEAR_BOUND = 0.37f;
     private final float FOLLOWING_ANGLE_THRESHOLD = 10f; //10 degreees
+    private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.7f;
+    private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.5f;
+
+
+    /*control guide:
+    * YAW
+    *   POSITIVE: left
+    *   NEGATIVE: right
+    *
+    * ROLL (left/rt wrt phone)
+    *   POSITIVE: left
+    *   NEGATIVE: right
+    *
+    * PITCH (forward/back wrt phone)
+    *   POSITIVE: forward
+    *   NEGATIVE: backward
+    * */
 
     private static final Object[] xAxisUpdateLock = new Object[]{};
 
@@ -367,6 +386,13 @@ public class HumanFollower {
         private boolean mPaused;
         private boolean mFinished;
 
+        //initial state is idling
+        private FollowState currState = FollowState.IDLING;
+
+        //one option would be to do each type of correction in a separate Thread...
+        //create a fair semaphore with three permits, which means semphr will use a first-in first-out method (always give up to Thread that's been waiting longest)
+        private Semaphore correctionLock = new Semaphore(3, true);
+
         final int[] cnt = {0};
         int thrust_mult = 1;
         int thrust_step = 100;
@@ -376,6 +402,10 @@ public class HumanFollower {
         int roll = 0;
         int yawrate = 0;
         final float start_height = 0.05f;
+
+        //let's always keep track of what's currently being corrected.
+        private boolean centering = false, correctingDist = true, correctingPivot = false;
+
 
         public FollowRunnable() {
             mPauseLock = new Object();
@@ -390,7 +420,6 @@ public class HumanFollower {
             //UP SEQUENCE
             while (cnt[0] < 50) { //SHOULD BE 50
                 sendPacket(new HeightHoldPacket(0, 0, 0, (float) start_height + (TARG_HEIGHT - start_height) * (cnt[0] / 50.0f)));
-                //sendPacket(new CommanderPacket(0, 0, 0, (char) 12001));
 
                 //always check if 'Kill' button has been pressed
                 if (killCheck()) {
@@ -417,25 +446,98 @@ public class HumanFollower {
 
             cnt[0] = 0;
 
+
             return 0;
         }
 
+
+
+        //main adjustment loop for human tracking
+        //pivoting when mannequin turns, back/fwd when mannequin dist changes, centering if mannequin isn't in center of frame
+        /*PSEUDO
+        ON EACH LOOP:
+        (We essentially have a semaphore that can be used by one of three different correction "threads." Distance is the initial recipient of said semaphore.)
+        1. Let's assume (**FOR NOW**) that mannequin and drone start face-to-face.
+        2. We start in the idling state.
+        3. Check state first.
+            3a. IF state is IDLING:
+                I. Check distance first.
+                II. IF distance is not in appropriate range:
+                    i. Push an appropriate distance adjustment to the drone.
+                    ii. Set state to CORRECTING_DIST.
+                III. ELSE:
+                    i. We know distance is currently correct, so check centering.
+                    ii. IF bounding box is not in appropriate range:
+                        A. Push an appropriate centering adjustment to the drone.
+                        B. Set state to CENTERING.
+                    iii. ELSE:
+                        A. Now we know distance and centering are correct, so can finally check torso tilt ratio.
+                        B. IF tilt ratio is NOT in appropriate range:
+                            a. Push an appropriate torso tilt correction packet (combines roll and yaw).
+                            b. Keep state in IDLING. After each torso tilt push (**FOR NOW**), we want everything to be checked again just in case.
+                        C. ELSE:
+                            a. Everything's good. Send blank hover packet and continue in IDLING state.
+            3b. IF state is CORRECTING_DIST:
+                I. Check distance.
+                II. IF distance is not in appropriate range:
+                    i. Push an appropriate distance PLUS CENTERING (just in case dist correction unintentionally affects centering) adjustment to the drone.
+                III: ELSE:
+                    i. For now, just be sure to send blank hover packet.
+                    ii.Return to IDLING state to check all following parameters again.
+            3c. IF state is CENTERING:
+                I. Check centering.
+                II. IF bounding box is not in appropriate range:
+                    i. Push an appropriate centering PLUS DISTANCE (just in case centering unintentionally affects dist) adjustment to the drone.
+                III: ELSE:
+                    i. For now, just be sure to send blank hover packet.
+                    ii.Return to IDLING state to check all following parameters again.
+         */
         private int follow_control() {
-            float dist_to_hum, torso_tilt_ratio, hum_angle;
+            float dist_to_hum, torso_tilt_ratio, torso_tilt_ratio_abs, hum_angle;
 
             //default to no adjustments
             float vx = 0, vy = 0, yaw = 0;
 
+            switch (currState) {
+                //the drone is idling, just hovering in place
+                case IDLING:
+                    //check distance
+                    break;
+                case CORRECTING_DIST:
+                    break;
+                case CENTERING:
+                    break;
+                case CORRECTING_TILT:
+                    break;
+            }
+
             //check if there's new angle data available from Posenet threadd
             if (freshPosenetTorsoTiltRatio.get()) {
                 torso_tilt_ratio = posenetStats.getTorsoTiltRatio();
+                torso_tilt_ratio_abs = Math.abs(torso_tilt_ratio);
 
-                if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f || torso_tilt_ratio < 0 || torso_tilt_ratio > 30) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
-                    Log.i(CTRL, "Human not found, sending hover pkt");
+                Log.i(CTRL, "From HumanFollower: human torso tilt is " + torso_tilt_ratio);
+
+                if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f || torso_tilt_ratio_abs > 30) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
+                    Log.i(CTRL, "Torso tilt ratio value problem, sending hover pkt");
                 }
+                else if (torso_tilt_ratio_abs < FOLLOWING_TILT_RATIO_LOWER_BOUND) {
+                    //yaw one unit, then roll one unit
+                    Log.i(CTRL, "Torso tilt ratio too small, yawing right, rolling left");
+                }
+                else if (torso_tilt_ratio_abs > FOLLOWING_TILT_RATIO_UPPER_BOUND) {
+                    //yaw one unit, then roll one unit
+                    Log.i(CTRL, "Torso tilt ratio too big, yawing left, rolling right");
+                }
+
+                //otherwise we're good on tilt
                 else {
-                    Log.i(CTRL, "From HumanFollower: human torso tilt is " + torso_tilt_ratio);
+                    Log.i(CTRL, "Human at an acceptable tilt, sending hover pkt");
                 }
+
+
+                //set Posenet torso tilt ratio data NOT fresh anymore
+                freshPosenetTorsoTiltRatio.set(false);
             }
 
             if (freshPosenetDistData.get()) {
@@ -454,13 +556,13 @@ public class HumanFollower {
                     Log.i(CTRL, "Human too close, pitch backward one packet...");
 
                     //if human too close, pitch backward one packet
-                    vx = -CORRECTION_VEL;
+                    vx = -CORRECTION_VEL_PR;
                 }
                 else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
                     Log.i(CTRL, "Human too far, pitch forward one packet...");
 
                     //if human too far, pitch forward one packet
-                    vx = CORRECTION_VEL;
+                    vx = CORRECTION_VEL_PR;
                 }
 
                 //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
@@ -469,19 +571,7 @@ public class HumanFollower {
                 }
 
 
-                //pivoting when mannequin turns
-                /*PSEUDO
-                ON EACH LOOP:
-                1. get the human's angle (or torso tilt ratio) by querying posenetStats
-                2. IF the angle or ratio is greater than the set threshold:
-                    1. ignore distance adjustment for now, it won't be accurate anyway because eyes are tilted
-                    2. yaw slightly, in the appropriate direction
-                    3. roll slightly, in the appropriate direction
-                   ELSE:
-                    1. correct distance if necessary, or just hover in place
 
-                    Ignore distance until the turning is corrected, then re-enable distance corrections (for now).
-                 */
 
 
                 //set Posenet distance data NOT fresh anymore
