@@ -722,9 +722,9 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-                /*
+
                 mHumanFollower = new HumanFollower(usbController, MainActivity.this);
-                mHumanFollower.start();*/
+                mHumanFollower.start();
             }
 
             else {

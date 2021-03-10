@@ -18,7 +18,7 @@ import weiner.noah.wifidirect.usb.UsbController;
  *
  * */
 public class HumanFollower {
-    private UsbController usbController;
+    private final UsbController usbController;
     private final float TARG_HEIGHT = 0.3f;
     private final String LOG_TAG = "HumanFollower";
     private final String CTRL = "Control";
@@ -26,19 +26,28 @@ public class HumanFollower {
     private Thread mFollowThread;
     private Thread mLandingThread;
 
-    private MainActivity mainActivity;
+    private final MainActivity mainActivity;
 
-    private AtomicBoolean following = new AtomicBoolean(false);
-    private AtomicBoolean landing = new AtomicBoolean(false);
-    private AtomicBoolean kill = new AtomicBoolean(false);
-    private AtomicBoolean freshPosenetDistData = new AtomicBoolean(false);
+    private final AtomicBoolean following = new AtomicBoolean(false);
+    private final AtomicBoolean landing = new AtomicBoolean(false);
+    private final AtomicBoolean kill = new AtomicBoolean(false);
 
-    private PosenetStats posenetStats;
+    //do we have new distance data from Posenet?
+    private final AtomicBoolean freshPosenetDistData = new AtomicBoolean(false);
+
+    //do we have new angle data from Posenet?
+    private final AtomicBoolean freshPosenetAngleData = new AtomicBoolean(false);
+
+    //do we have new torso tilt data from Posenet?
+    private final AtomicBoolean freshPosenetTorsoTiltRatio = new AtomicBoolean(false);
+
+    private final PosenetStats posenetStats;
 
     private final int CORRECTION_RELAX = 5;
     private final float CORRECTION_VEL = 0.2f;
     private final float FOLLOWING_FAR_BOUND = 0.57f;
     private final float FOLLOWING_NEAR_BOUND = 0.37f;
+    private final float FOLLOWING_ANGLE_THRESHOLD = 10f; //10 degreees
 
     private static final Object[] xAxisUpdateLock = new Object[]{};
 
@@ -339,8 +348,16 @@ public class HumanFollower {
         }
     }
 
-    public void setFresh(boolean requested) {
+    public void setFreshDist(boolean requested) {
         freshPosenetDistData.set(requested);
+    }
+
+    public void setFreshAngle(boolean requested) {
+        freshPosenetAngleData.set(requested);
+    }
+
+    public void setFreshTorsoTiltRatio(boolean requested) {
+        freshPosenetTorsoTiltRatio.set(requested);
     }
 
 
@@ -404,10 +421,22 @@ public class HumanFollower {
         }
 
         private int follow_control() {
-            float dist_to_hum;
+            float dist_to_hum, torso_tilt_ratio, hum_angle;
 
             //default to no adjustments
             float vx = 0, vy = 0, yaw = 0;
+
+            //check if there's new angle data available from Posenet threadd
+            if (freshPosenetTorsoTiltRatio.get()) {
+                torso_tilt_ratio = posenetStats.getTorsoTiltRatio();
+
+                if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f || torso_tilt_ratio < 0 || torso_tilt_ratio > 30) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
+                    Log.i(CTRL, "Human not found, sending hover pkt");
+                }
+                else {
+                    Log.i(CTRL, "From HumanFollower: human torso tilt is " + torso_tilt_ratio);
+                }
+            }
 
             if (freshPosenetDistData.get()) {
                 //ready to update distance from human
@@ -438,6 +467,22 @@ public class HumanFollower {
                 else {
                     Log.i(CTRL, "Human in frame, at appropriate dist, sending hover pkt");
                 }
+
+
+                //pivoting when mannequin turns
+                /*PSEUDO
+                ON EACH LOOP:
+                1. get the human's angle (or torso tilt ratio) by querying posenetStats
+                2. IF the angle or ratio is greater than the set threshold:
+                    1. ignore distance adjustment for now, it won't be accurate anyway because eyes are tilted
+                    2. yaw slightly, in the appropriate direction
+                    3. roll slightly, in the appropriate direction
+                   ELSE:
+                    1. correct distance if necessary, or just hover in place
+
+                    Ignore distance until the turning is corrected, then re-enable distance corrections (for now).
+                 */
+
 
                 //set Posenet distance data NOT fresh anymore
                 freshPosenetDistData.set(false);

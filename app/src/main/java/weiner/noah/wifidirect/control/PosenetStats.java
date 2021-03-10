@@ -87,10 +87,16 @@ public class PosenetStats {
     //whether we have both eyes of human in the frame. Determines whether or not we can calculate dist to the human
     private boolean bothEyesFound = false;
 
+    //whether we were able to get a solid reading of the angle
+    private boolean angleCalculatedCorrectly = false;
+    private boolean torsoTiltCalculatedCorrectly = false;
+
     private Thread mLiveFeedThread = null;
     private PosenetLiveStatFeed posenetLiveStatFeed;
 
-    private AtomicFloat dist_to_hum = new AtomicFloat();
+    private final AtomicFloat dist_to_hum = new AtomicFloat();
+    private final AtomicFloat hum_angle = new AtomicFloat();
+    private final AtomicFloat hum_tilt_ratio = new AtomicFloat();
 
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity, HumanFollower caller) {
@@ -126,6 +132,20 @@ public class PosenetStats {
     public float getDistToHum() {
         if (bothEyesFound)
             return dist_to_hum.get();
+        else
+            return -1;
+    }
+
+    public float getHumAngle() {
+        if (angleCalculatedCorrectly)
+            return hum_angle.get();
+        else
+            return -1;
+    }
+
+    public float getTorsoTiltRatio() {
+        if (torsoTiltCalculatedCorrectly)
+            return hum_tilt_ratio.get();
         else
             return -1;
     }
@@ -794,7 +814,11 @@ public class PosenetStats {
             //Draw `bitmap` and `person` in square canvas.
             int screenWidth, screenHeight, left, right, top, bottom, canvasHeight, canvasWidth;
 
+            //initialize right and left eye found flags to false
             int rightEyeFound = 0, leftEyeFound = 0;
+
+            //initialize angle calculated correctly to false?
+            //angleCalculatedCorrectly = false;
 
             float xValue, yValue, xVel, yVel;
             float dist = 0;
@@ -886,7 +910,24 @@ public class PosenetStats {
 
             //notify HumanFollower that there's new distance data available
             caller.onNewDistanceData();
-            caller.setFresh(true);
+            caller.setFreshDist(true);
+
+
+
+            if (humanActualRaw[2] != null && humanActualRaw[3] != null && humanActualRaw[4] != null && humanActualRaw[5] != null ) {
+                double dist_rt_shoulder_eye = humanActualRaw[3].x - humanActualRaw[4].x;
+                double dist_left_shoulder_eye = humanActualRaw[5].x - humanActualRaw[2].x;
+
+                hum_tilt_ratio.set((float)dist_rt_shoulder_eye / (float)dist_left_shoulder_eye);
+
+                torsoTiltCalculatedCorrectly = true;
+            }
+            else {
+                torsoTiltCalculatedCorrectly = false;
+            }
+
+            //notify HumanFollower of new torso tilt ratio data available
+            caller.setFreshTorsoTiltRatio(true);
 
             //ONLY EVERY THIRD FRAME, maybe?
             //check that all of the keypoints for a human body bust area were found
@@ -1023,6 +1064,14 @@ public class PosenetStats {
 
                     float humAngle = getHumAnglesTrig(lenOpposite, 135f); //81.25?
 
+                    hum_angle.set(humAngle);
+
+                    //check to see if the human angle calculated successfully (90 or -90 almost always indicates corruption)
+                    angleCalculatedCorrectly = (humAngle != -90f && humAngle != 90f);
+
+                    //notify HumanFollower of new angle data available
+                    caller.setFreshAngle(true);
+
                     Log.i(TAG, "Human angle is " + humAngle + " degrees");
 
                     //Log.i(TAG, String.format("Euler angles mat is of size %d x %d", eulerAngles.rows(), eulerAngles.cols()));
@@ -1034,7 +1083,7 @@ public class PosenetStats {
                     double[] yaw = rotationMat.get(1, 0);
 
                 } else {
-                    Log.i(TAG, "Triggered");
+                    Log.i(TAG, "Something preventing angle data calculation");
                 }
             }
 
