@@ -42,28 +42,34 @@ public class HumanFollower {
     //do we have new torso tilt data from Posenet?
     private final AtomicBoolean freshPosenetTorsoTiltRatio = new AtomicBoolean(false);
 
+    //do we have new bounding box center offset data from Posenet?
+    private final AtomicBoolean freshPosenetBbCenterOffset = new AtomicBoolean(false);
+
     private final PosenetStats posenetStats;
 
     private final int CORRECTION_RELAX = 5;
-    private final float CORRECTION_VEL_PR = 0.2f;
-    private final float CORRECTION_VEL_YAW = 15f;
+    private final float CORRECTION_VEL_PITCH = 0.2f;
+    private final float CORRECTION_VEL_ROLL = 0.15f;
+    private final float CORRECTION_VEL_ROLL_SMALL = 0.03f;
+    private final float CORRECTION_VEL_YAW = 150f; //FIXME: yaw was way too fast, causing human to move out of frame
     private final float FOLLOWING_FAR_BOUND = 0.57f;
     private final float FOLLOWING_NEAR_BOUND = 0.37f;
-    private final float FOLLOWING_ANGLE_THRESHOLD = 10f; //10 degreees
-    private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.7f;
+    private final float FOLLOWING_ANGLE_THRESHOLD = 20f; //10 degreees/sec
+    private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.65f; //FIXME: appears to be too low
     private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.5f;
+    private final float FOLLOWING_BB_CENTER_THRESHOLD = 55f; //maintain +- 55 pixels
 
 
     /*control guide:
     * YAW
-    *   POSITIVE: left
-    *   NEGATIVE: right
+    *   POSITIVE: left wrt phone's POV
+    *   NEGATIVE: right wrt phone's POV
     *
-    * ROLL (left/rt wrt phone)
-    *   POSITIVE: left
-    *   NEGATIVE: right
+    * ROLL (left/rt wrt phone's POV)
+    *   POSITIVE: right
+    *   NEGATIVE: left
     *
-    * PITCH (forward/back wrt phone)
+    * PITCH (forward/back wrt phone's POV)
     *   POSITIVE: forward
     *   NEGATIVE: backward
     * */
@@ -276,7 +282,7 @@ public class HumanFollower {
     }
 
     //Runnable that indefinitely streams HeightHold packets to the drone to make it hover, until the 'Land' button is pressed.
-    //This thread is used in addition to the followrunnable thread
+    //This thread is used in addition to the FollowRunnable thread
     class HoverRunnable implements Runnable {
         private final Object mPauseLock;
         private boolean mPaused;
@@ -379,6 +385,10 @@ public class HumanFollower {
         freshPosenetTorsoTiltRatio.set(requested);
     }
 
+    public void setFreshBbCenterOffset(boolean requested) {
+        freshPosenetBbCenterOffset.set(requested);
+    }
+
 
     //Runnable that safely lands the drone, starting from TARG_HEIGHT
     class FollowRunnable implements Runnable {
@@ -402,9 +412,6 @@ public class HumanFollower {
         int roll = 0;
         int yawrate = 0;
         final float start_height = 0.05f;
-
-        //let's always keep track of what's currently being corrected.
-        private boolean centering = false, correctingDist = true, correctingPivot = false;
 
 
         public FollowRunnable() {
@@ -474,7 +481,7 @@ public class HumanFollower {
                         A. Now we know distance and centering are correct, so can finally check torso tilt ratio.
                         B. IF tilt ratio is NOT in appropriate range:
                             a. Push an appropriate torso tilt correction packet (combines roll and yaw).
-                            b. Keep state in IDLING. After each torso tilt push (**FOR NOW**), we want everything to be checked again just in case.
+                            b. Keep state in IDLING. After each torso tilt push (**FOR NOW**), we want distance and centering to be checked again just in case.
                         C. ELSE:
                             a. Everything's good. Send blank hover packet and continue in IDLING state.
             3b. IF state is CORRECTING_DIST:
@@ -493,95 +500,372 @@ public class HumanFollower {
                     ii.Return to IDLING state to check all following parameters again.
          */
         private int follow_control() {
-            float dist_to_hum, torso_tilt_ratio, torso_tilt_ratio_abs, hum_angle;
+            float dist_to_hum, torso_tilt_ratio, torso_tilt_ratio_abs, hum_angle, bb_center_off;
 
             //default to no adjustments
             float vx = 0, vy = 0, yaw = 0;
 
+            //state mach to determine what Posenet data to check and what corrections to make
             switch (currState) {
                 //the drone is idling, just hovering in place
                 case IDLING:
-                    //check distance
+                    //check distance first
+                    if (freshPosenetDistData.get()) {
+                        //ready to update distance from human
+                        dist_to_hum = posenetStats.getDistToHum();
+                        Log.i(CTRL, "IDLING: From HumFollower: dist to hum is " + dist_to_hum);
+
+
+                        //we'd like to stay in the distance range ~0.4-0.6m
+                        if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
+                            Log.i(CTRL, "Human not found, sending hover pkt");
+
+                            //if human not in frame or it's too early, just hover in place
+                        }
+                        else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
+                            Log.i(CTRL, "Human too close, pitch backward one packet...");
+
+                            //if human too close, pitch backward one packet
+                            vx = -CORRECTION_VEL_PITCH;
+
+                            //set state to CORRECTING_DIST
+                            currState = FollowState.CORRECTING_DIST;
+                        }
+                        else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
+                            Log.i(CTRL, "Human too far, pitch forward one packet...");
+
+                            //if human too far, pitch forward one packet
+                            vx = CORRECTION_VEL_PITCH;
+
+                            //set state to CORRECTING_DIST
+                            currState = FollowState.CORRECTING_DIST;
+                        }
+                        //otherwise human is in frame, and we're at an appropriate distance, so now check centering
+                        else {
+                            Log.i(CTRL, "IDLING: Human in frame, at appropriate dist, so checking centering");
+
+                            if (freshPosenetBbCenterOffset.get()) {
+                                //ready to update bounding box center's offset wrt to frame offset
+                                bb_center_off = posenetStats.getBbOffCenter();
+                                Log.i(CTRL, "IDLING: From HumFollower: bbox center offset is " + bb_center_off);
+
+                                //check for inexistent/invalid bb center offset data
+                                if (bb_center_off == -1.0f || bb_center_off == 0f) {
+                                    Log.i(CTRL, "IDLING: Bb ctr data came back -1, skipping adjustment");
+
+                                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+                                }
+                                else if (bb_center_off < -FOLLOWING_BB_CENTER_THRESHOLD) {
+                                    Log.i(CTRL, "IDLING: Human too far left, rolling left...");
+
+                                    //if human too far left (wrt to drone's perspective), move drone left
+                                    vy = -CORRECTION_VEL_ROLL_SMALL;
+
+                                    //set state to CORRECTING_DIST
+                                    currState = FollowState.CENTERING;
+                                }
+                                else if (bb_center_off > FOLLOWING_BB_CENTER_THRESHOLD) {
+                                    Log.i(CTRL, "IDLING: Human too far right, rolling right...");
+
+                                    //if human too far right (wrt to drone's perspective), move drone right
+                                    vy = CORRECTION_VEL_ROLL_SMALL;
+
+                                    //set state to CORRECTING_DIST
+                                    currState = FollowState.CENTERING;
+                                }
+                                else {
+                                    Log.i(CTRL, "IDLING: Human in frame, at appropriate dist and centered, so checking torso tilt ratio");
+
+                                    //now we know drone is at an appropriate distance and is centered in front of human, so can check torso tilt ratio
+                                    if (freshPosenetTorsoTiltRatio.get()) {
+                                        torso_tilt_ratio = posenetStats.getTorsoTiltRatio();
+                                        torso_tilt_ratio_abs = Math.abs(torso_tilt_ratio);
+
+                                        Log.i(CTRL, "IDLING: From HumanFollower: human torso tilt is " + torso_tilt_ratio);
+
+                                        if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f || torso_tilt_ratio_abs > 30) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
+                                            Log.i(CTRL, "IDLING: Torso tilt ratio value problem, sending hover pkt");
+
+                                            //make no adjustment, don't move out of IDLING state
+                                        }
+                                        else if (torso_tilt_ratio_abs < FOLLOWING_TILT_RATIO_LOWER_BOUND) {
+                                            //yaw right, roll left
+                                            Log.i(CTRL, "IDLING: Torso tilt ratio too small, yawing right, rolling left");
+
+                                            //negative yaw is right
+                                            yaw = -CORRECTION_VEL_YAW;
+
+                                            //negative roll is left
+                                            vy = -CORRECTION_VEL_ROLL;
+                                        }
+                                        else if (torso_tilt_ratio_abs > FOLLOWING_TILT_RATIO_UPPER_BOUND) {
+                                            //yaw left, roll right
+                                            Log.i(CTRL, "IDLING: Torso tilt ratio too big, yawing left, rolling right");
+
+                                            //positive yaw is left
+                                            yaw = CORRECTION_VEL_YAW;
+
+                                            //positive roll is right
+                                            vy = CORRECTION_VEL_ROLL;
+                                        }
+
+                                        //otherwise we're good on tilt, centering, and distance. Remain in IDLING state, just hovering in place
+                                        else {
+                                            Log.i(CTRL, "ALL THREE PARAMS (incl torso tilt) CLEAR, HOVER IN PLACE");
+                                        }
+
+                                        //set Posenet torso tilt ratio data NOT fresh anymore
+                                        freshPosenetTorsoTiltRatio.set(false);
+                                    }
+                                    else {
+                                        Log.i(CTRL, "IDLING: Torso tilt data not fresh, making no adjustments");
+                                    }
+                                }
+
+
+                                //set Posenet bb center offset data NOT fresh anymore
+                                freshPosenetBbCenterOffset.set(false);
+                            }
+                            else {
+                                Log.i(CTRL, "IDLING: Centering data not fresh, making no adjustments, not even checking torso tilt data");
+                            }
+                        }
+
+                        //set Posenet distance data NOT fresh anymore
+                        freshPosenetDistData.set(false);
+                    }
+                    //otherwise data isn't fresh, just hover in place
+                    else {
+                        Log.i(CTRL, "IDLING: Dist data not fresh, making no adjustments, not checking centering nor torso tilt");
+                    }
+
                     break;
                 case CORRECTING_DIST:
+                    if (freshPosenetDistData.get()) {
+                        dist_to_hum = posenetStats.getDistToHum();
+                        Log.i(CTRL, "CORRECTING_DIST: From HumFollower: dist to hum is " + dist_to_hum);
+
+                        //we'd like to stay in the distance range ~0.4-0.6m
+                        if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
+                            Log.i(CTRL, "CORRECTING_DIST: human not found or invalid dist data, skipping adjustment");
+
+                            //if human not in frame or it's too early, make no adjustments, but remain in CORRECTING_DIST state.
+                        }
+                        else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
+                            Log.i(CTRL, "Human too close, pitch backward one packet...");
+
+                            //if human too close, pitch backward one packet
+                            vx = -CORRECTION_VEL_PITCH;
+
+                            //let's also get centering data, if possible, and make vy adjustment (in case person is moving diagonally)
+                            if (freshPosenetBbCenterOffset.get()) {
+                                bb_center_off = posenetStats.getBbOffCenter();
+                                Log.i(CTRL, "CORRECTING_DIST: From HumFollower: bbox center offset is " + bb_center_off);
+
+                                //check for inexistent/invalid bb center offset data
+                                if (bb_center_off == -1.0f || bb_center_off == 0f) {
+                                    Log.i(CTRL, "CORRECTING_DIST: Bb ctr data came back -1, skipping adjustment");
+
+                                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+                                }
+                                else if (bb_center_off < -FOLLOWING_BB_CENTER_THRESHOLD) {
+                                    Log.i(CTRL, "CORRECTING_DIST: Human too far left, rolling left...");
+
+                                    //if human too far left (wrt to drone's perspective), move drone left
+                                    vy = -CORRECTION_VEL_ROLL_SMALL;
+
+                                }
+                                else if (bb_center_off > FOLLOWING_BB_CENTER_THRESHOLD) {
+                                    Log.i(CTRL, "CORRECTING_DIST: Human too far right, rolling right...");
+
+                                    //if human too far right (wrt to drone's perspective), move drone right
+                                    vy = CORRECTION_VEL_ROLL_SMALL;
+                                }
+                                else {
+                                    Log.i(CTRL, "CORRECTING_DIST: Bb ctr is OKAY");
+                                }
+
+                                freshPosenetBbCenterOffset.set(false);
+                            }
+                            //otherwise data isn't fresh, just hover in place
+                            else {
+                                Log.i(CTRL, "CORRECTING_DIST: bb center offset data not fresh, making no adjustments, not checking centering nor torso tilt");
+                            }
+
+                            //stay in CORRECTING_DIST state
+                        }
+                        else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
+                            Log.i(CTRL, "Human too far, pitch forward one packet...");
+
+                            //if human too far, pitch forward one packet
+                            vx = CORRECTION_VEL_PITCH;
+
+                            //FIXME: REPEATED CODE
+                            //let's also get centering data, if possible, and make vy adjustment (in case person is moving diagonally)
+                            if (freshPosenetBbCenterOffset.get()) {
+                                bb_center_off = posenetStats.getBbOffCenter();
+                                Log.i(CTRL, "CORRECTING_DIST: From HumFollower: bbox center offset is " + bb_center_off);
+
+                                //check for inexistent/invalid bb center offset data
+                                if (bb_center_off == -1.0f || bb_center_off == 0f) {
+                                    Log.i(CTRL, "CORRECTING_DIST: Bb ctr data came back -1, skipping adjustment");
+
+                                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+                                }
+                                else if (bb_center_off < -FOLLOWING_BB_CENTER_THRESHOLD) {
+                                    Log.i(CTRL, "CORRECTING_DIST: Human too far left, rolling left...");
+
+                                    //if human too far left (wrt to drone's perspective), move drone left
+                                    vy = -CORRECTION_VEL_ROLL_SMALL;
+
+                                }
+                                else if (bb_center_off > FOLLOWING_BB_CENTER_THRESHOLD) {
+                                    Log.i(CTRL, "CORRECTING_DIST: Human too far right, rolling right...");
+
+                                    //if human too far right (wrt to drone's perspective), move drone right
+                                    vy = CORRECTION_VEL_ROLL_SMALL;
+                                }
+                                else {
+                                    Log.i(CTRL, "CORRECTING_DIST: Bb ctr is OKAY");
+                                }
+
+                                freshPosenetBbCenterOffset.set(false);
+                            }
+                            //otherwise data isn't fresh, just hover in place
+                            else {
+                                Log.i(CTRL, "CORRECTING_DIST: bb center offset data not fresh, making no adjustments, not checking centering nor torso tilt");
+                            }
+
+                            //stay in CORRECTING_DIST state
+                        }
+                        else {
+                            //distance is looking good now, return to IDLING state, no adjustments
+                            currState = FollowState.IDLING;
+                        }
+
+                        //set Posenet dist data NOT fresh anymore
+                        freshPosenetDistData.set(false);
+                    }
+                    //otherwise data isn't fresh, just hover in place
+                    else {
+                        Log.i(CTRL, "CORRECTING_DIST: Dist data not fresh, making no adjustments, not checking centering nor torso tilt");
+                    }
+
+
                     break;
                 case CENTERING:
+                    if (freshPosenetBbCenterOffset.get()) {
+                        bb_center_off = posenetStats.getBbOffCenter();
+                        Log.i(CTRL, "CENTERING: From HumFollower: bb center offset is " + bb_center_off);
+
+                        //check for nonexistent or invalid data
+                        if (bb_center_off == -1.0f || bb_center_off == 0f) {
+                            Log.i(CTRL, "CENTERING: Human not found or center offset data invalid, skipping adjustment");
+
+                            //if human not in frame or it's too early, make no adjustments, but remain in CORRECTING_DIST state.
+                        }
+                        else if (bb_center_off < -FOLLOWING_BB_CENTER_THRESHOLD) {
+                            Log.i(CTRL, "CENTERING: Human too far left, rolling left");
+
+                            //if human too far left (wrt to drone's perspective), roll left
+                            vy = -CORRECTION_VEL_ROLL_SMALL;
+
+                            //let's also get dist data, if possible, and make vx adjustment (in case person is moving diagonally)
+                            if (freshPosenetDistData.get()) {
+                                dist_to_hum = posenetStats.getDistToHum();
+                                Log.i(CTRL, "CENTERING: From HumFollower: dist to hum is " + dist_to_hum);
+
+                                //check for inexistent/invalid dist data
+                                if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
+                                    Log.i(CTRL, "CENTERING: dist data came back -1, skipping adjustment");
+
+                                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+                                }
+                                else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
+                                    Log.i(CTRL, "CENTERING: human too close, pitching back");
+
+                                    //if human too close, move drone back
+                                    vx = -CORRECTION_VEL_PITCH;
+                                }
+                                else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
+                                    Log.i(CTRL, "CENTERING: Human too far, pitching forward");
+
+                                    //if human too far, move drone forward
+                                    vx = CORRECTION_VEL_PITCH;
+                                }
+                                else {
+                                    Log.i(CTRL, "CENTERING: dist is OKAY");
+                                }
+
+                                freshPosenetDistData.set(false);
+                            }
+                            //otherwise data isn't fresh, just hover in place
+                            else {
+                                Log.i(CTRL, "CENTERING: Dist data not fresh, making no adjustments, not checking centering nor torso tilt");
+                            }
+
+                            //stay in CENTERING state
+                        }
+                        else if (bb_center_off > FOLLOWING_BB_CENTER_THRESHOLD) {
+                            Log.i(CTRL, "CENTERING: human too far right, rolling right");
+
+                            //if human too far right, roll right
+                            vy = CORRECTION_VEL_ROLL_SMALL;
+
+                            //let's also get dist data, if possible, and make vx adjustment (in case person is moving diagonally)
+                            if (freshPosenetDistData.get()) {
+                                dist_to_hum = posenetStats.getDistToHum();
+                                Log.i(CTRL, "CENTERING: From HumFollower: dist to hum is " + dist_to_hum);
+
+                                //check for inexistent/invalid dist data
+                                if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
+                                    Log.i(CTRL, "CENTERING: dist data came back -1, skipping adjustment");
+
+                                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+                                }
+                                else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
+                                    Log.i(CTRL, "CENTERING: human too close, pitching back");
+
+                                    //if human too close, move drone back
+                                    vx = -CORRECTION_VEL_PITCH;
+                                }
+                                else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
+                                    Log.i(CTRL, "CENTERING: Human too far, pitching forward");
+
+                                    //if human too far, move drone forward
+                                    vx = CORRECTION_VEL_PITCH;
+                                }
+                                else {
+                                    Log.i(CTRL, "CENTERING: dist is OKAY");
+                                }
+
+                                freshPosenetDistData.set(false);
+                            }
+                            //otherwise data isn't fresh, just hover in place
+                            else {
+                                Log.i(CTRL, "CENTERING: Dist data not fresh, making no adjustments, not checking centering nor torso tilt");
+                            }
+
+                            //stay in CORRECTING_DIST state
+                        }
+                        else {
+                            //looks centered, so return to IDLING state, no adjustments
+                            currState = FollowState.IDLING;
+                        }
+
+                        //set Posenet dist data NOT fresh anymore
+                        freshPosenetBbCenterOffset.set(false);
+                    }
+                    //otherwise data isn't fresh, just hover in place
+                    else {
+                        Log.i(CTRL, "CENTERING: Bb center offset data not fresh, making no adjustments, not checking centering nor torso tilt");
+                    }
+
                     break;
                 case CORRECTING_TILT:
                     break;
             }
 
-            //check if there's new angle data available from Posenet threadd
-            if (freshPosenetTorsoTiltRatio.get()) {
-                torso_tilt_ratio = posenetStats.getTorsoTiltRatio();
-                torso_tilt_ratio_abs = Math.abs(torso_tilt_ratio);
-
-                Log.i(CTRL, "From HumanFollower: human torso tilt is " + torso_tilt_ratio);
-
-                if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f || torso_tilt_ratio_abs > 30) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
-                    Log.i(CTRL, "Torso tilt ratio value problem, sending hover pkt");
-                }
-                else if (torso_tilt_ratio_abs < FOLLOWING_TILT_RATIO_LOWER_BOUND) {
-                    //yaw one unit, then roll one unit
-                    Log.i(CTRL, "Torso tilt ratio too small, yawing right, rolling left");
-                }
-                else if (torso_tilt_ratio_abs > FOLLOWING_TILT_RATIO_UPPER_BOUND) {
-                    //yaw one unit, then roll one unit
-                    Log.i(CTRL, "Torso tilt ratio too big, yawing left, rolling right");
-                }
-
-                //otherwise we're good on tilt
-                else {
-                    Log.i(CTRL, "Human at an acceptable tilt, sending hover pkt");
-                }
-
-
-                //set Posenet torso tilt ratio data NOT fresh anymore
-                freshPosenetTorsoTiltRatio.set(false);
-            }
-
-            if (freshPosenetDistData.get()) {
-                //ready to update distance from human
-                dist_to_hum = posenetStats.getDistToHum();
-                Log.i(CTRL, "From HumFollower: dist to hum is " + dist_to_hum);
-
-
-                //we'd like to stay in the distance range ~0.4-0.6m
-                if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
-                    Log.i(CTRL, "Human not found, sending hover pkt");
-
-                    //if human not in frame or it's too early, just hover in place
-                }
-                else if (dist_to_hum < FOLLOWING_NEAR_BOUND) {
-                    Log.i(CTRL, "Human too close, pitch backward one packet...");
-
-                    //if human too close, pitch backward one packet
-                    vx = -CORRECTION_VEL_PR;
-                }
-                else if (dist_to_hum > FOLLOWING_FAR_BOUND) {
-                    Log.i(CTRL, "Human too far, pitch forward one packet...");
-
-                    //if human too far, pitch forward one packet
-                    vx = CORRECTION_VEL_PR;
-                }
-
-                //otherwise human is in frame, and we're at an appropriate distance, so just hover in place
-                else {
-                    Log.i(CTRL, "Human in frame, at appropriate dist, sending hover pkt");
-                }
-
-
-
-
-
-                //set Posenet distance data NOT fresh anymore
-                freshPosenetDistData.set(false);
-            }
-
-            //otherwise data isn't fresh, just hover in place
-            else {
-                Log.i(CTRL, "Dist data not fresh, sending hover pkt");
-            }
 
             //send the packet with appropriate correction settings
             sendPacket(new HeightHoldPacket(vx, vy, yaw, TARG_HEIGHT));

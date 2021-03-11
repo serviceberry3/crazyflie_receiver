@@ -89,7 +89,12 @@ public class PosenetStats {
 
     //whether we were able to get a solid reading of the angle
     private boolean angleCalculatedCorrectly = false;
+
+    //whether we were able to get a solid reading of the torso tilt ratio
     private boolean torsoTiltCalculatedCorrectly = false;
+
+    //whether we were able to get a solid reading of offset between frame center and bb center
+    private boolean bbOffCenterCalculatedCorrectly = false;
 
     private Thread mLiveFeedThread = null;
     private PosenetLiveStatFeed posenetLiveStatFeed;
@@ -97,6 +102,7 @@ public class PosenetStats {
     private final AtomicFloat dist_to_hum = new AtomicFloat();
     private final AtomicFloat hum_angle = new AtomicFloat();
     private final AtomicFloat hum_tilt_ratio = new AtomicFloat();
+    private final AtomicFloat bb_off_center = new AtomicFloat();
 
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity, HumanFollower caller) {
@@ -146,6 +152,13 @@ public class PosenetStats {
     public float getTorsoTiltRatio() {
         if (torsoTiltCalculatedCorrectly)
             return hum_tilt_ratio.get();
+        else
+            return -1;
+    }
+
+    public float getBbOffCenter() {
+        if (bbOffCenterCalculatedCorrectly)
+            return bb_off_center.get();
         else
             return -1;
     }
@@ -817,6 +830,8 @@ public class PosenetStats {
             //initialize right and left eye found flags to false
             int rightEyeFound = 0, leftEyeFound = 0;
 
+            humanActualRaw[0] = humanActualRaw[1] = humanActualRaw[2] = humanActualRaw[3] = humanActualRaw[4] = humanActualRaw[5] = null;
+
             //initialize angle calculated correctly to false?
             //angleCalculatedCorrectly = false;
 
@@ -912,8 +927,7 @@ public class PosenetStats {
             caller.onNewDistanceData();
             caller.setFreshDist(true);
 
-
-
+            //if we have everything needed to calculate torso tilt ratio
             if (humanActualRaw[2] != null && humanActualRaw[3] != null && humanActualRaw[4] != null && humanActualRaw[5] != null ) {
                 double dist_rt_shoulder_eye = humanActualRaw[3].x - humanActualRaw[4].x;
                 double dist_left_shoulder_eye = humanActualRaw[5].x - humanActualRaw[2].x;
@@ -930,12 +944,10 @@ public class PosenetStats {
             //notify HumanFollower of new torso tilt ratio data available
             caller.setFreshTorsoTiltRatio(true);
 
-            //ONLY EVERY THIRD FRAME, maybe?
+
             //check that all of the keypoints for a human body bust area were found
             if (humanActualRaw[0] != null && humanActualRaw[1] != null && humanActualRaw[2] != null && humanActualRaw[3] != null
-                    && humanActualRaw[4] != null && humanActualRaw[5] != null
-                //&& frameCounter==3
-            ) {
+                    && humanActualRaw[4] != null && humanActualRaw[5] != null) {
                 //BOUNDING BOX
                 //top is aligned with uppermost eye
                 double bbox_top = Math.max(humanActualRaw[3].y, humanActualRaw[2].y);
@@ -946,10 +958,23 @@ public class PosenetStats {
                 //rt is aligned w left shoulder
                 double bbox_rt = humanActualRaw[5].x;
 
+                Log.i(TAG, "bbox left is " + bbox_left + ", bbox right is " + bbox_rt);
+
                 //bottom is at lowermost shoulder
                 double bbox_bot = Math.min(humanActualRaw[4].y, humanActualRaw[5].y);
 
+                double bbox_center = (bbox_rt + bbox_left) / 2;
 
+                double frame_center = 128.5;
+
+                //save bounding box's offset from senter of frame into the bb_off_center AtomiFloat
+                bb_off_center.set((float)(bbox_center - frame_center));
+
+                bbOffCenterCalculatedCorrectly = true;
+
+
+                //IF USING SOLVEPNP
+                /*
                 distToLeftEyeX = (float) Math.abs(humanActualRaw[2].x - humanActualRaw[0].x);
                 distToRightEyeX = (float) Math.abs(humanActualRaw[3].x - humanActualRaw[0].x);
 
@@ -971,15 +996,22 @@ public class PosenetStats {
                     Point temp = humanActualRaw[5];
                     humanActualRaw[5] = humanActualRaw[4];
                     humanActualRaw[4] = temp;
-                }
+                }*/
+            }
+            else {
+                Log.i(TAG, "Posenet: UNABLE to calculate bounding box center offset!!");
+                bbOffCenterCalculatedCorrectly = false;
+            }
+
+            //notify HumanFollower of new bb center offset data available
+            caller.setFreshBbCenterOffset(true);
 
 
                 //HARDCODED, FIXME
-
+                /*
                 //find chest pt (midpt between shoulders)
                 torsoCtrX = (float) (humanActualRaw[4].x + humanActualRaw[5].x) / 2;
                 torsoCtrY = (float) (humanActualRaw[4].y + humanActualRaw[5].y) / 2;
-
 
                 torsoCenter = new Point(torsoCtrX, torsoCtrY);
                 //torsoCenter = new Point((rt_should.x + left_should.x)/2, (rt_should.y + left_should.y)/2);
@@ -1096,7 +1128,7 @@ public class PosenetStats {
             frameCounter++;
             if (frameCounter == 4) {
                 frameCounter = 0;
-            }
+            }*/
         }
 
         private float getHumAnglesTrig(float opp, float hyp) {
