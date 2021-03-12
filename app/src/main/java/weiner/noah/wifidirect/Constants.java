@@ -44,4 +44,12 @@ public class Constants {
     public static final float focalLenExp = 219f;
 
     //Meanwhile, using opencv chessboard calibration, claimed focal length x is 524.1, y is 523.9
+
+    public static final float angleCalibrationAdjustmentLeft = 0f;
+    public static final float angleCalibrationAdjustmentRight = 0f;
+
+    public static final float PIVOT_WEIGHT = 1.5f;
+
+    public static final float pupillaryDistanceCalibrationAdjustmentLeft = 0f;
+    public static final float pupillaryDistanceCalibrationAdjustmentRight = 5f;
 }

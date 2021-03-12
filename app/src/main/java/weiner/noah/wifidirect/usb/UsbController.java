@@ -816,19 +816,20 @@ public class UsbController {
 
                 //make sure queuing operation succeeds
                 if (readingRequest.queue(buffer, 1)) {  //FIXME
-                    Log.d(TAG, "WAITING FOR INCOMING USB DATA...");
+                    //Log.d(TAG, "WAITING FOR INCOMING USB DATA...");
 
                     //wait for read request to finish
                     while (completedRequestEndpt != in) {
-                        Log.i(TAG, "requestWait() for in");
+                        //Log.i(TAG, "requestWait() for in");
                         completedRequest = connection.requestWait();
 
                         if (completedRequest != null)
                             completedRequestEndpt = completedRequest.getEndpoint();
-                        else
-                            Log.i(TAG, "Completedrequest is null!");
+                        else {
+                            //Log.i(TAG, "Completedrequest is null!");
+                        }
                     }
-                    Log.i(TAG, "completedRequest is in");
+                    //Log.i(TAG, "completedRequest is in");
 
 
                     //CMT OUT
@@ -842,7 +843,7 @@ public class UsbController {
                     //wait for the read request to be completed
                     //at this point buffer contains the data received
                     byte firstChar = buffer.get(0);
-                    Log.d(TAG, "Received byte " + firstChar + " from drone");
+                    //Log.d(TAG, "Received byte " + firstChar + " from drone");
 
                     //if this is confirmation that drone received pkt, notify the pktSendLock
                     if (firstChar == (byte)0x09) {
@@ -858,7 +859,7 @@ public class UsbController {
                             return;
                         }
                         else {
-                            Log.i(TAG, "ReadRunnable Queued phone ack successfully");
+                            //Log.i(TAG, "ReadRunnable Queued phone ack successfully");
 
 
                             //CMT OUT

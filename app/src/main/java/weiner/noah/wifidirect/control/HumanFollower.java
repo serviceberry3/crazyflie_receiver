@@ -49,15 +49,15 @@ public class HumanFollower {
 
     private final int CORRECTION_RELAX = 5;
     private final float CORRECTION_VEL_PITCH = 0.2f;
-    private final float CORRECTION_VEL_ROLL = 0.15f;
-    private final float CORRECTION_VEL_ROLL_SMALL = 0.03f;
-    private final float CORRECTION_VEL_YAW = 150f; //FIXME: yaw was way too fast, causing human to move out of frame
+    private final float CORRECTION_VEL_ROLL = 0.1f;
+    private final float CORRECTION_VEL_ROLL_SMALL = 0.05f;
+    private final float CORRECTION_VEL_YAW = 10f; //FIXME: yaw was way too fast, causing human to move out of frame
     private final float FOLLOWING_FAR_BOUND = 0.57f;
     private final float FOLLOWING_NEAR_BOUND = 0.37f;
     private final float FOLLOWING_ANGLE_THRESHOLD = 20f; //10 degreees/sec
-    private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.65f; //FIXME: appears to be too low
-    private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.5f;
-    private final float FOLLOWING_BB_CENTER_THRESHOLD = 55f; //maintain +- 55 pixels
+    private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.70f; //FIXME: appears to be too low WAS: 1.65
+    private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.45f;
+    private final float FOLLOWING_BB_CENTER_THRESHOLD = 60f; //maintain +- 55 pixels
 
 
     /*control guide:
@@ -458,6 +458,80 @@ public class HumanFollower {
         }
 
 
+        /**Fly a small arc of circle around human
+         * @param dir - direction in which to fly the arc. 1 is right, -1 is left
+         * */
+        private int arcSequence(float dir) {
+            //yaw. If left (-1) was specified, need to yaw right (negative yaw)
+            //If right (1) was specified, need to yaw left (positive yaw)
+
+            //Send 10 yaw packets
+            while (cnt[0] < 10) {
+                sendPacket(new HeightHoldPacket(0, 0, dir * CORRECTION_VEL_YAW, TARG_HEIGHT));
+
+                //always check if 'Kill' button has been pressed
+                if (killCheck()) {
+                    return -1;
+                }
+
+                //sleep 90 ms between packet sends
+                try {
+                    Thread.sleep(90);
+                }
+
+                //if interrupted by kill()
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                    following.set(false);
+                    kill.set(false);
+                    //thread now stops and goes home
+
+                    //notify FollowRunnable thread to return
+                    return -1;
+                }
+
+                cnt[0]++;
+            }
+
+            cnt[0] = 0;
+
+            //roll. If left (-1) was specified, need to roll left (negative roll)
+            //If right (1) was specified, need to roll right (positive roll)
+
+            //send 3 roll packets
+            while (cnt[0] < 3) {
+                sendPacket(new HeightHoldPacket(0, dir * CORRECTION_VEL_ROLL, 0, TARG_HEIGHT));
+
+                //always check if 'Kill' button has been pressed
+                if (killCheck()) {
+                    return -1;
+                }
+
+                //sleep 90 ms between packet sends
+                try {
+                    Thread.sleep(90);
+                }
+
+                //if interrupted by kill()
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                    following.set(false);
+                    kill.set(false);
+                    //thread now stops and goes home
+
+                    //notify FollowRunnable thread to return
+                    return -1;
+                }
+
+                cnt[0]++;
+            }
+
+            cnt[0] = 0;
+
+            return 0;
+        }
+
+
 
         //main adjustment loop for human tracking
         //pivoting when mannequin turns, back/fwd when mannequin dist changes, centering if mannequin isn't in center of frame
@@ -592,21 +666,25 @@ public class HumanFollower {
                                             //yaw right, roll left
                                             Log.i(CTRL, "IDLING: Torso tilt ratio too small, yawing right, rolling left");
 
-                                            //negative yaw is right
-                                            yaw = -CORRECTION_VEL_YAW;
+                                            //arc left
+                                            if (arcSequence(-1) != 0) {
+                                                //kill or land requested, notify HumanFollower Thread to return
+                                                return -1;
+                                            }
 
-                                            //negative roll is left
-                                            vy = -CORRECTION_VEL_ROLL;
+                                            //remain in IDLING state, distance and ctring will be checked after arcSequence completes
                                         }
                                         else if (torso_tilt_ratio_abs > FOLLOWING_TILT_RATIO_UPPER_BOUND) {
                                             //yaw left, roll right
                                             Log.i(CTRL, "IDLING: Torso tilt ratio too big, yawing left, rolling right");
 
-                                            //positive yaw is left
-                                            yaw = CORRECTION_VEL_YAW;
+                                            //arc right
+                                            if (arcSequence(1) != 0) {
+                                                //kill or land requested, notify HumanFollower Thread to return
+                                                return -1;
+                                            }
 
-                                            //positive roll is right
-                                            vy = CORRECTION_VEL_ROLL;
+                                            //remain in IDLING state, distance and ctring will be checked after arcSequence completes
                                         }
 
                                         //otherwise we're good on tilt, centering, and distance. Remain in IDLING state, just hovering in place

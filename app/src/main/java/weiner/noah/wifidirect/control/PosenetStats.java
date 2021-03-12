@@ -935,6 +935,23 @@ public class PosenetStats {
                 hum_tilt_ratio.set((float)dist_rt_shoulder_eye / (float)dist_left_shoulder_eye);
 
                 torsoTiltCalculatedCorrectly = true;
+
+                Log.i(TAG, "Posenet: human torso ratio " + hum_tilt_ratio.get());
+
+                //get raw torso angle and adjust it based on camera location
+                double human_angle_raw = getHumAngleFromTorsoRatio(hum_tilt_ratio.get());
+
+                //negative means turning right
+                if (human_angle_raw < 0)
+                    hum_angle.set((float)human_angle_raw + Constants.angleCalibrationAdjustmentRight);
+                //positive means turning left
+                else
+                    hum_angle.set((float)human_angle_raw - Constants.angleCalibrationAdjustmentLeft);
+
+
+                angleCalculatedCorrectly = true;
+
+                Log.i("TORSO_DBUG", "Posenet: human torso angle using trig is " + hum_angle.get());
             }
             else {
                 Log.i(TAG, "Posenet: UNABLE to calculate torso tilt ratio!!");
@@ -943,6 +960,9 @@ public class PosenetStats {
 
             //notify HumanFollower of new torso tilt ratio data available
             caller.setFreshTorsoTiltRatio(true);
+
+            //notify HumanFollower of new angle data available
+            caller.setFreshAngle(true);
 
 
             //check that all of the keypoints for a human body bust area were found
@@ -1144,6 +1164,43 @@ public class PosenetStats {
             return (float) Math.toDegrees(Math.asin(ratio));
         }
 
+        //used trig to derive basic function of human's pivot angle on left:right ratio of shoulder-eye distances
+        private double getHumAngleFromTorsoRatio(float ratio) {
+            float infinity = Float.POSITIVE_INFINITY;
+            float nan = infinity - infinity;
+            float neg_infinity = infinity * -1;
+
+
+            if (ratio > neg_infinity && ratio < infinity && ratio != nan) {
+                //angle is 0 if ratio exactly 1
+                if (ratio == 1)
+                    return 0;
+
+
+                final double v = (Math.sqrt(2f) * Math.sqrt((29257f * ratio * ratio) + (2736f * ratio) + 29257f)) / (167f * ratio - 167f);
+                if (ratio >= -1f) {
+                    return Math.toDegrees((
+                            -2f * Math.atan(
+                                    -v +
+                                            (175 * ratio / (167 * ratio - 167)) +
+                                            (175 / (167 * ratio - 167))
+                            )
+                    ));
+                }
+
+                else {
+                    return Math.toDegrees((
+                            -2f * Math.atan(
+                                    v +
+                                            (175 * ratio / (167 * ratio - 167)) +
+                                            (175 / (167 * ratio - 167))
+                            )
+                    ));
+                }
+            }
+            return -1;
+        }
+
         //how many real-world meters each pixel in the camera image represents
         private float mPerPixel;
 
@@ -1159,7 +1216,7 @@ public class PosenetStats {
             float scale = Constants.PD / pixelDistance;
             mPerPixel = scale;
 
-            Log.d(TAG, String.format("Each pixel on the screen represents %f meters in real life in plane of peron's face", scale));
+            Log.d(TAG, String.format("Each pixel on the screen represents %f meters in real life in plane of person's face", scale));
 
             //find experimental distance from camera to human and display it on screen
 
@@ -1168,10 +1225,53 @@ public class PosenetStats {
 
         private float calculateDistanceToHuman(float pixelDistance) {
             //Triangle simularity
-            //D = (W * F) / P
+            //D = (W * F) / P, where d = distance to hum, W = width of obj in real world coordinate frame, F = focal len of camera,
+            //P = distance between eyes in pixels
 
-            //find distance to human in meters
-            return Constants.PD * Constants.focalLenExp / pixelDistance;
+            float curr_hum_angle_radians = (float)Math.toRadians(hum_angle.get());
+
+            float apparent_pd_shrink_from_pivot = 0;
+
+            //if human turned to right, correct some for camera location
+            if (curr_hum_angle_radians < 0)
+                pixelDistance += 5;
+
+            //work in the angle: negative angle means person rotating rt from their perspective
+            //pos angle means person rotating left form their POV
+            if (getHumAngle() != -1.0f) {
+
+
+                //find how far the eyes have displaced due to the human's current pivot angle
+                float rt_eye_new_x_coord = (float)
+                                //new x coordinate of right eye due to pivoting
+                                ( (-0.0315 * Math.cos(curr_hum_angle_radians)) + (0.0875 * Math.sin(curr_hum_angle_radians)) );
+
+                float rt_eye_disp_due_to_pivot = (float) Math.abs(rt_eye_new_x_coord -
+                        //original x coordinate of right eye
+                        (-.0315));
+
+
+                //find how far the eyes have displaced due to the human's current pivot angle
+                float left_eye_new_x_coord = (float)
+                                //new x coordinate of left eye due to pivoting
+                                ( (0.0315 * Math.cos(curr_hum_angle_radians)) + (0.0875 * Math.sin(curr_hum_angle_radians)) );
+
+                float left_eye_disp_due_to_pivot = (float) Math.abs(left_eye_new_x_coord -
+                //original x coordinate of left eye
+                (.0315));
+
+                Log.i("TORSO_DBUG", "Posenet: rt eye new x coord is " + rt_eye_new_x_coord + ", left eye new x coord is " + left_eye_new_x_coord);
+                Log.i(TAG, "Posenet: rt eye disp is " + rt_eye_disp_due_to_pivot + ", left eye disp is " + left_eye_disp_due_to_pivot);
+
+                //find how much the actual distance would have appeared to shrink in real life (in meters). WAS .063
+                //this is the difference in displacements
+                apparent_pd_shrink_from_pivot = Math.abs(left_eye_disp_due_to_pivot - rt_eye_disp_due_to_pivot);
+
+                Log.i("TORSO DBUG", "Apparent pd shrink from pivot is " + apparent_pd_shrink_from_pivot);
+            }
+
+            //find distance to human in meters, subtracting
+            return (Constants.PD - (apparent_pd_shrink_from_pivot * Constants.PIVOT_WEIGHT)) * Constants.focalLenExp / pixelDistance;
         }
 
 
