@@ -96,6 +96,9 @@ public class PosenetStats {
     //whether we were able to get a solid reading of offset between frame center and bb center
     private boolean bbOffCenterCalculatedCorrectly = false;
 
+    //whether, if we couldn't do full bb, we could at least find center offset using eyes
+    private boolean bbOffCenterFellBackToEyesOnly = false;
+
     private Thread mLiveFeedThread = null;
     private PosenetLiveStatFeed posenetLiveStatFeed;
 
@@ -838,6 +841,8 @@ public class PosenetStats {
             float xValue, yValue, xVel, yVel;
             float dist = 0;
 
+            double bbox_center = 0;
+
             BodyPart currentPart;
             Position leftEye = null, rightEye = null;
 
@@ -941,21 +946,67 @@ public class PosenetStats {
                 //get raw torso angle and adjust it based on camera location
                 double human_angle_raw = getHumAngleFromTorsoRatio(hum_tilt_ratio.get());
 
-                //negative means turning right
-                if (human_angle_raw < 0)
-                    hum_angle.set((float)human_angle_raw + Constants.angleCalibrationAdjustmentRight);
-                //positive means turning left
-                else
-                    hum_angle.set((float)human_angle_raw - Constants.angleCalibrationAdjustmentLeft);
+                //the angle couldn't be calculated correctly
+                if (human_angle_raw == -10000) {
+                    angleCalculatedCorrectly = false;
+                }
+                else {
+                    //negative means turning right
+                    if (human_angle_raw < 0)
+                        hum_angle.set((float)human_angle_raw + Constants.angleCalibrationAdjustmentRight);
+                        //positive means turning left
+                    else
+                        hum_angle.set((float)human_angle_raw - Constants.angleCalibrationAdjustmentLeft);
 
+                    angleCalculatedCorrectly = true;
+                }
 
-                angleCalculatedCorrectly = true;
 
                 Log.i("TORSO_DBUG", "Posenet: human torso angle using trig is " + hum_angle.get());
             }
+            //otherwise if we do have nose and both eyes
+            else if (humanActualRaw[0] != null && humanActualRaw[1] != null &&
+                    humanActualRaw[2] != null && humanActualRaw[3] != null) {
+                Log.i(TAG, "Posenet: falling back to eyes/nose only for torso angle calculation");
+
+                //fall back to estimating human angle from ratio of [nose to rt eye]:[nose to left eye]
+                double dist_rt_eye_nose = humanActualRaw[0].x - humanActualRaw[3].x;
+                double dist_left_eye_nose = humanActualRaw[2].x - humanActualRaw[0].x;
+
+                Log.i(TAG, "Dist from rt eye to nose is " + dist_rt_eye_nose + ", dist from left eye to nose is " + dist_left_eye_nose);
+
+                hum_tilt_ratio.set((float)dist_rt_eye_nose / (float)dist_left_eye_nose);
+
+                torsoTiltCalculatedCorrectly = true;
+
+                Log.i(TAG, "Posenet: human torso ratio calc from eyes/nose is " + hum_tilt_ratio.get());
+
+                //get raw torso angle and adjust it based on camera location
+                double human_angle_raw = getHumAngleFromFaceRatio(hum_tilt_ratio.get());
+
+                //the angle couldn't be calculated correctly
+                if (human_angle_raw == -10000) {
+                    angleCalculatedCorrectly = false;
+                }
+                else {
+                    //negative means turning right
+                    if (human_angle_raw < 0)
+                        hum_angle.set((float)human_angle_raw + Constants.angleCalibrationAdjustmentFaceRight);
+                        //positive means turning left
+                    else
+                        hum_angle.set((float)human_angle_raw - Constants.angleCalibrationAdjustmentFaceLeft);
+
+                    angleCalculatedCorrectly = true;
+                }
+
+
+                Log.i("TORSO_DBUG", "Posenet: human torso angle using trig FROM FACE is " + hum_angle.get());
+            }
+
             else {
                 Log.i(TAG, "Posenet: UNABLE to calculate torso tilt ratio!!");
                 torsoTiltCalculatedCorrectly = false;
+                angleCalculatedCorrectly = false;
             }
 
             //notify HumanFollower of new torso tilt ratio data available
@@ -983,12 +1034,12 @@ public class PosenetStats {
                 //bottom is at lowermost shoulder
                 double bbox_bot = Math.min(humanActualRaw[4].y, humanActualRaw[5].y);
 
-                double bbox_center = (bbox_rt + bbox_left) / 2;
+                bbox_center = (bbox_rt + bbox_left) / 2;
 
-                double frame_center = 128.5;
 
-                //save bounding box's offset from senter of frame into the bb_off_center AtomiFloat
-                bb_off_center.set((float)(bbox_center - frame_center));
+
+                //save bounding box's offset from center of frame into the bb_off_center AtomicFloat
+                bb_off_center.set((float)(bbox_center - Constants.FRAME_CENTER));
 
                 bbOffCenterCalculatedCorrectly = true;
 
@@ -1018,6 +1069,19 @@ public class PosenetStats {
                     humanActualRaw[4] = temp;
                 }*/
             }
+            //otherwise maybe we have the two eyes, so can calculate a center offset with just those
+            else if (humanActualRaw[2] != null && humanActualRaw[3] != null) {
+                Log.i(TAG, "Posenet: falling back to eyes only for centering calculation");
+
+                //find center point of eyes
+                bbox_center = (humanActualRaw[2].x + humanActualRaw[3].x) / 2;
+
+                //save bounding box's offset from center of frame into the bb_off_center AtomicFloat
+                bb_off_center.set((float)(bbox_center - Constants.FRAME_CENTER));
+
+                bbOffCenterCalculatedCorrectly = true;
+            }
+
             else {
                 Log.i(TAG, "Posenet: UNABLE to calculate bounding box center offset!!");
                 bbOffCenterCalculatedCorrectly = false;
@@ -1198,11 +1262,46 @@ public class PosenetStats {
                     ));
                 }
             }
-            return -1;
+            return -10000;
         }
 
-        //how many real-world meters each pixel in the camera image represents
-        private float mPerPixel;
+        private double getHumAngleFromFaceRatio(float ratio) {
+            float infinity = Float.POSITIVE_INFINITY;
+            float nan = infinity - infinity;
+            float neg_infinity = infinity * -1;
+
+            if (ratio > neg_infinity && ratio < infinity && ratio != nan) {
+                //angle is 0 if ratio exactly 1
+                if (ratio == 1)
+                    return 0;
+
+
+                final double v = Math.sqrt( (4594 * ratio * ratio) - (6688 * ratio) + 4594) ;
+
+                if (ratio >= -1f) {
+                    return Math.toDegrees((
+                            -2f * Math.atan(
+                                    (-v + (25 * ratio) + 25
+                                    ) /
+                                            ( 63 * (ratio - 1) )
+
+                            )
+                    ));
+                }
+
+                else {
+                    return Math.toDegrees((
+                            -2f * Math.atan(
+                                    (v + (25 * ratio) + 25
+                                    ) /
+                                            ( 63 * (ratio - 1) )
+
+                            )
+                    ));
+                }
+            }
+            return -10000;
+        }
 
         //compute how much distance each pixel currently represents in real life, using known data about avg human pupillary distance
         private float computeScale(Position leftEye, Position rightEye) {
@@ -1214,7 +1313,7 @@ public class PosenetStats {
 
             //now we want to find out how many real meters each pixel on the display corresponds to
             float scale = Constants.PD / pixelDistance;
-            mPerPixel = scale;
+            //how many real-world meters each pixel in the camera image represents
 
             Log.d(TAG, String.format("Each pixel on the screen represents %f meters in real life in plane of person's face", scale));
 

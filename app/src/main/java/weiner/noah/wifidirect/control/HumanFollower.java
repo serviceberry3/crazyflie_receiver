@@ -52,9 +52,11 @@ public class HumanFollower {
     private final float CORRECTION_VEL_ROLL = 0.1f;
     private final float CORRECTION_VEL_ROLL_SMALL = 0.05f;
     private final float CORRECTION_VEL_YAW = 10f; //FIXME: yaw was way too fast, causing human to move out of frame
-    private final float FOLLOWING_FAR_BOUND = 0.57f;
+    private final float FOLLOWING_FAR_BOUND = 0.6f;
     private final float FOLLOWING_NEAR_BOUND = 0.37f;
-    private final float FOLLOWING_ANGLE_THRESHOLD = 20f; //10 degreees/sec
+
+    //how far we'll let the person turn before making a pivot correction maneuver
+    private final float FOLLOWING_ANGLE_THRESHOLD = 25f;
     private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.70f; //FIXME: appears to be too low WAS: 1.65
     private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.45f;
     private final float FOLLOWING_BB_CENTER_THRESHOLD = 60f; //maintain +- 55 pixels
@@ -651,18 +653,19 @@ public class HumanFollower {
                                     Log.i(CTRL, "IDLING: Human in frame, at appropriate dist and centered, so checking torso tilt ratio");
 
                                     //now we know drone is at an appropriate distance and is centered in front of human, so can check torso tilt ratio
-                                    if (freshPosenetTorsoTiltRatio.get()) {
-                                        torso_tilt_ratio = posenetStats.getTorsoTiltRatio();
-                                        torso_tilt_ratio_abs = Math.abs(torso_tilt_ratio);
+                                    if (freshPosenetAngleData.get()) {
+                                        torso_tilt_ratio = posenetStats.getHumAngle();
+                                        //torso_tilt_ratio_abs = Math.abs(torso_tilt_ratio);
 
-                                        Log.i(CTRL, "IDLING: From HumanFollower: human torso tilt is " + torso_tilt_ratio);
+                                        Log.i(CTRL, "IDLING: From HumanFollower: human torso angle is " + torso_tilt_ratio);
 
-                                        if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f || torso_tilt_ratio_abs > 30) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
+                                        if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
                                             Log.i(CTRL, "IDLING: Torso tilt ratio value problem, sending hover pkt");
 
                                             //make no adjustment, don't move out of IDLING state
                                         }
-                                        else if (torso_tilt_ratio_abs < FOLLOWING_TILT_RATIO_LOWER_BOUND) {
+                                        //if person has rotated too far right
+                                        else if (torso_tilt_ratio < -FOLLOWING_ANGLE_THRESHOLD) {
                                             //yaw right, roll left
                                             Log.i(CTRL, "IDLING: Torso tilt ratio too small, yawing right, rolling left");
 
@@ -674,7 +677,8 @@ public class HumanFollower {
 
                                             //remain in IDLING state, distance and ctring will be checked after arcSequence completes
                                         }
-                                        else if (torso_tilt_ratio_abs > FOLLOWING_TILT_RATIO_UPPER_BOUND) {
+                                        //if person has rotated too far left
+                                        else if (torso_tilt_ratio > FOLLOWING_ANGLE_THRESHOLD) {
                                             //yaw left, roll right
                                             Log.i(CTRL, "IDLING: Torso tilt ratio too big, yawing left, rolling right");
 
@@ -694,6 +698,9 @@ public class HumanFollower {
 
                                         //set Posenet torso tilt ratio data NOT fresh anymore
                                         freshPosenetTorsoTiltRatio.set(false);
+
+                                        //set Posenet angle data to NOT fresh anymore
+                                        freshPosenetAngleData.set(false);
                                     }
                                     else {
                                         Log.i(CTRL, "IDLING: Torso tilt data not fresh, making no adjustments");

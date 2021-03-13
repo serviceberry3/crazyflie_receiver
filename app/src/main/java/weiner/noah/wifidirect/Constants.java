@@ -48,8 +48,14 @@ public class Constants {
     public static final float angleCalibrationAdjustmentLeft = 0f;
     public static final float angleCalibrationAdjustmentRight = 0f;
 
+    //tuning params for when using only face to calculate human torso angle
+    public static final float angleCalibrationAdjustmentFaceLeft = 20f;
+    public static final float angleCalibrationAdjustmentFaceRight = 34f;
+
     public static final float PIVOT_WEIGHT = 1.5f;
 
     public static final float pupillaryDistanceCalibrationAdjustmentLeft = 0f;
     public static final float pupillaryDistanceCalibrationAdjustmentRight = 5f;
+
+    public static final double FRAME_CENTER = 128.5;
 }
