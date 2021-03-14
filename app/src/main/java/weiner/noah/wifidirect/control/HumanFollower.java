@@ -51,9 +51,9 @@ public class HumanFollower {
     private final float CORRECTION_VEL_PITCH = 0.2f;
     private final float CORRECTION_VEL_ROLL = 0.1f;
     private final float CORRECTION_VEL_ROLL_SMALL = 0.05f;
-    private final float CORRECTION_VEL_YAW = 10f; //FIXME: yaw was way too fast, causing human to move out of frame
-    private final float FOLLOWING_FAR_BOUND = 0.6f;
-    private final float FOLLOWING_NEAR_BOUND = 0.37f;
+    private final float CORRECTION_VEL_YAW = 15f; //FIXME: yaw was way too fast, causing human to move out of frame
+    private final float FOLLOWING_FAR_BOUND = 0.52f;
+    private final float FOLLOWING_NEAR_BOUND = 0.32f;
 
     //how far we'll let the person turn before making a pivot correction maneuver
     private final float FOLLOWING_ANGLE_THRESHOLD = 25f;
@@ -500,8 +500,8 @@ public class HumanFollower {
             //roll. If left (-1) was specified, need to roll left (negative roll)
             //If right (1) was specified, need to roll right (positive roll)
 
-            //send 3 roll packets
-            while (cnt[0] < 3) {
+            //send 5 roll packets
+            while (cnt[0] < 5) {
                 sendPacket(new HeightHoldPacket(0, dir * CORRECTION_VEL_ROLL, 0, TARG_HEIGHT));
 
                 //always check if 'Kill' button has been pressed
