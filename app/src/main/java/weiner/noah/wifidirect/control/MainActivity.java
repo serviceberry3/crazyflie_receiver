@@ -1,5 +1,6 @@
 package weiner.noah.wifidirect.control;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
@@ -319,6 +320,36 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        switch (requestCode) {
+            case 2:
+                Log.d(TAG, "onRequestPermsRes: got request for write storage perm");
+
+                if (grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                    Log.v(TAG,"Permission: "+ permissions[0] + "was "+ grantResults[0]);
+                    //resume tasks needing this permission
+
+                }
+                else {
+
+                }
+                break;
+
+            case 3:
+                Log.d(TAG, "onRequestPermsRes: got request for read storage perm");
+                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Log.v(TAG,"Permission: " + permissions[0] + "was " + grantResults[0]);
+                }
+                else {
+
+                }
+                break;
+        }
+    }
+
     //discover Wifi Direct peers
     //An initiated discovery request from an app stays active until device starts connecting to a peer, forms a p2p group, or there's an explicit
     //stopPeerDiscovery(). Apps can listen to WIFI_P2P_DISCOVERY_CHANGED_ACTION to know if a peer-to-peer discovery is running or stopped.
@@ -356,6 +387,7 @@ public class MainActivity extends AppCompatActivity {
                             aa.notifyDataSetChanged();
                         }
                     });
+
         }
     };
 
@@ -720,11 +752,8 @@ public class MainActivity extends AppCompatActivity {
 
                 humanActualMat = new MatOfPoint2f();
 
-
-
-                /*
                 mHumanFollower = new HumanFollower(usbController, MainActivity.this);
-                mHumanFollower.start();*/
+                mHumanFollower.start();
             }
 
             else {

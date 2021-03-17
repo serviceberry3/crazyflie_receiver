@@ -28,6 +28,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CpuUsageInfo;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -71,11 +72,13 @@ import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
+import weiner.noah.Battery;
 import weiner.noah.wifidirect.AtomicFloat;
 import weiner.noah.wifidirect.ConfirmationDialog;
 import weiner.noah.wifidirect.Constants;
 import weiner.noah.wifidirect.ErrorDialog;
 import weiner.noah.wifidirect.R;
+import weiner.noah.wifidirect.Thermal;
 import weiner.noah.wifidirect.utils.ImageUtils;
 
 public class PosenetStats {
@@ -107,11 +110,20 @@ public class PosenetStats {
     private final AtomicFloat hum_tilt_ratio = new AtomicFloat();
     private final AtomicFloat bb_off_center = new AtomicFloat();
 
+    private final Thermal thermal;
+    private final Battery battery;
+
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity, HumanFollower caller) {
         this.posenet = posenet;
         this.mainActivity = mainActivity;
         this.caller = caller;
+
+        //instantiate new Thermal
+        this.thermal = new Thermal("/sys/class/thermal/", mainActivity);
+
+        //instantiate new Battery
+        this.battery = new Battery("sys/class/power_supply/", mainActivity);
 
         //On construction, we'd like to launch a background thread which runs Posenet on incoming images from front-facing camera,
         //and allows polling of the data (distance from human, angle of human, etc)
@@ -122,6 +134,9 @@ public class PosenetStats {
         posenetLiveStatFeed = new PosenetLiveStatFeed();
         mLiveFeedThread = new Thread(posenetLiveStatFeed);
         mLiveFeedThread.start();
+
+        //start logging thermal and battery readings
+        thermal.startLogging();
     }
 
     public void stop() {
@@ -136,6 +151,9 @@ public class PosenetStats {
             posenetLiveStatFeed.stopBackgroundThread();
             posenetLiveStatFeed = null;
         }
+
+        //stop logging thermal and battery readings
+        thermal.stopLogging();
     }
 
     public float getDistToHum() {
@@ -597,7 +615,10 @@ public class PosenetStats {
         private class imageAvailableListener implements ImageReader.OnImageAvailableListener {
             @Override
             public void onImageAvailable(ImageReader imageReader) {
-                //Log.i("DBUG", "onImageAvailable");
+                Log.i(TAG, "onImageAvailable");
+
+                int temp = thermal.getBattTemp();
+                Log.i(TAG, "Batter ytemp is " + temp);
 
                 //We need to wait until we have some size from onPreviewSizeChosen
                 if (previewWidth == 0 || previewHeight == 0) {

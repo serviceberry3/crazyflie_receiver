@@ -61,6 +61,8 @@ public class HumanFollower {
     private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.45f;
     private final float FOLLOWING_BB_CENTER_THRESHOLD = 60f; //maintain +- 55 pixels
 
+    private final Device PNET_DEV_TO_USE = Device.GPU;
+
 
     /*control guide:
     * YAW
@@ -81,7 +83,7 @@ public class HumanFollower {
     public HumanFollower(UsbController usbController, MainActivity mainActivity) {
         this.usbController = usbController;
         this.mainActivity = mainActivity;
-        posenetStats = new PosenetStats(new Posenet(mainActivity.getApplicationContext(), "posenet_model.tflite", Device.GPU), mainActivity, this);
+        posenetStats = new PosenetStats(new Posenet(mainActivity.getApplicationContext(), "posenet_model.tflite", PNET_DEV_TO_USE), mainActivity, this);
     }
 
     /* Pseudocode

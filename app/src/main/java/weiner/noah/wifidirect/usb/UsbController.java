@@ -278,13 +278,12 @@ public class UsbController {
                 if (!mUsbManager.hasPermission(device)) {
                     Log.d("PERM", "Asking user for USB permission...");
                     permissionListener.onPermissionDenied(device);
-                    return;
                 }
                 else {
                     //start the setup and return
                     openConnectionOnReceivedPermission();
-                    return;
                 }
+                return;
             }
         }
 
