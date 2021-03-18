@@ -79,6 +79,7 @@ import weiner.noah.wifidirect.Constants;
 import weiner.noah.wifidirect.ErrorDialog;
 import weiner.noah.wifidirect.R;
 import weiner.noah.wifidirect.Thermal;
+import weiner.noah.wifidirect.ThermalService;
 import weiner.noah.wifidirect.utils.ImageUtils;
 
 public class PosenetStats {
@@ -111,6 +112,7 @@ public class PosenetStats {
     private final AtomicFloat bb_off_center = new AtomicFloat();
 
     private final Thermal thermal;
+    private final ThermalService thermalService;
     private final Battery battery;
 
 
@@ -125,6 +127,8 @@ public class PosenetStats {
         //instantiate new Battery
         this.battery = new Battery("sys/class/power_supply/", mainActivity);
 
+        this.thermalService = new ThermalService(mainActivity, caller);
+
         //On construction, we'd like to launch a background thread which runs Posenet on incoming images from front-facing camera,
         //and allows polling of the data (distance from human, angle of human, etc)
 
@@ -137,6 +141,8 @@ public class PosenetStats {
 
         //start logging thermal and battery readings
         thermal.startLogging();
+
+        thermalService.startListening();
     }
 
     public void stop() {
@@ -154,6 +160,8 @@ public class PosenetStats {
 
         //stop logging thermal and battery readings
         thermal.stopLogging();
+
+        thermalService.stopListening();
     }
 
     public float getDistToHum() {

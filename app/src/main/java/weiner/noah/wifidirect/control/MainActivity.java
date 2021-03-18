@@ -62,6 +62,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView tv;
     private Button buttonDiscover;
 
+    /**SET THIS TO TRUE IF YOU WANT TO DEBUG HUMANFOLLOWER WITH NO FLYING*/
+    //MAKE SURE DRONE IS OFF OR NOT PLUGGED IN!!!
+    private boolean DEBUG_HUMAN_FOLLOW = false;
+
     //should we relay packets to the drone? Must be atomic because it's read constantly by main thread, and modified by LandRunnable in HumanFollower
     private AtomicBoolean relayOn = new AtomicBoolean(true);
 
@@ -203,16 +207,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        /*
-        Button buttonServer = (Button) findViewById(R.id.buttonServer);
-
-        buttonServer.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                new becomeServerForPC().start();
-            }
-        });*/
-
         //set list item (device) so that when clicked, connectTo() function is run on that device
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             public void onItemClick(AdapterView<?> arg0, View arg1, int index, long arg3) {
@@ -305,9 +299,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });*/
-
-
-
     }
 
     //receive a Wifi Direct status change
@@ -459,7 +450,7 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private void showToastie(final String text) {
+    public void showToastie(final String text) {
         runOnUiThread(
                 new Runnable() {
                     @Override
@@ -732,10 +723,6 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(peerDiscoveryReceiver, peerfilter);
         registerReceiver(connectionChangedReceiver, connectionfilter);
         registerReceiver(p2pStatusReceiver, p2pEnabled);
-
-        /*
-        mHumanFollower = new HumanFollower(usbController, MainActivity.this);
-        mHumanFollower.start();*/
     }
 
     //use this OpenCV loader callback to instantiate Mat objects, otherwise we'll get an error about Mat not being found
@@ -752,8 +739,11 @@ public class MainActivity extends AppCompatActivity {
 
                 humanActualMat = new MatOfPoint2f();
 
-                mHumanFollower = new HumanFollower(usbController, MainActivity.this);
-                mHumanFollower.start();
+                //if user has selected to debug Posenet/Human following with no drone flying, start HumanFollower Thread now
+                if (DEBUG_HUMAN_FOLLOW) {
+                    mHumanFollower = new HumanFollower(usbController, MainActivity.this);
+                    mHumanFollower.start();
+                }
             }
 
             else {
