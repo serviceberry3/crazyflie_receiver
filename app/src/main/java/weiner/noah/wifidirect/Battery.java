@@ -1,4 +1,4 @@
-package weiner.noah;
+package weiner.noah.wifidirect;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;

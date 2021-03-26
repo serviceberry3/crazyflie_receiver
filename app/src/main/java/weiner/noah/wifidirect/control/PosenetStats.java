@@ -1,19 +1,11 @@
 package weiner.noah.wifidirect.control;
 
 import android.Manifest;
-import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.Dialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.Rect;
 import android.hardware.Sensor;
 import android.hardware.SensorManager;
 import android.hardware.camera2.CameraAccessException;
@@ -26,30 +18,21 @@ import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageReader;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.CpuUsageInfo;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Looper;
 import android.os.Process;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.view.View;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.RequiresApi;
 import androidx.core.util.Pair;
-import androidx.fragment.app.DialogFragment;
 
-import org.opencv.calib3d.Calib3d;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfDouble;
@@ -58,7 +41,6 @@ import org.opencv.core.MatOfPoint3f;
 import org.opencv.core.Point;
 import org.opencv.core.Point3;
 import org.tensorflow.lite.examples.noah.lib.BodyPart;
-import org.tensorflow.lite.examples.noah.lib.Device;
 import org.tensorflow.lite.examples.noah.lib.KeyPoint;
 import org.tensorflow.lite.examples.noah.lib.Person;
 import org.tensorflow.lite.examples.noah.lib.Posenet;
@@ -72,7 +54,7 @@ import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-import weiner.noah.Battery;
+import weiner.noah.wifidirect.Battery;
 import weiner.noah.wifidirect.AtomicFloat;
 import weiner.noah.wifidirect.ConfirmationDialog;
 import weiner.noah.wifidirect.Constants;
@@ -80,6 +62,7 @@ import weiner.noah.wifidirect.ErrorDialog;
 import weiner.noah.wifidirect.R;
 import weiner.noah.wifidirect.Thermal;
 import weiner.noah.wifidirect.ThermalService;
+import weiner.noah.wifidirect.utils.CircBuffer;
 import weiner.noah.wifidirect.utils.ImageUtils;
 
 public class PosenetStats {
@@ -106,6 +89,8 @@ public class PosenetStats {
     private Thread mLiveFeedThread = null;
     private PosenetLiveStatFeed posenetLiveStatFeed;
 
+    private final int CIRC_BUFF_SIZE = 25;
+
     private final AtomicFloat dist_to_hum = new AtomicFloat();
     private final AtomicFloat hum_angle = new AtomicFloat();
     private final AtomicFloat hum_tilt_ratio = new AtomicFloat();
@@ -114,6 +99,10 @@ public class PosenetStats {
     private final Thermal thermal;
     private final ThermalService thermalService;
     private final Battery battery;
+
+    private final CircBuffer xVelBuffer = new CircBuffer(CIRC_BUFF_SIZE);
+    private final CircBuffer yVelBuffer = new CircBuffer(CIRC_BUFF_SIZE);
+    private final CircBuffer angVelBuffer = new CircBuffer(CIRC_BUFF_SIZE);
 
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity, HumanFollower caller) {
@@ -190,6 +179,19 @@ public class PosenetStats {
             return bb_off_center.get();
         else
             return -1;
+    }
+
+    public float getXVel() {
+        //we're actually just looking for displacement div by time
+        return xVelBuffer.getDispOverTime();
+    }
+
+    public float getYVel() {
+        return yVelBuffer.getDispOverTime();
+    }
+
+    public float getAngVel() {
+        return angVelBuffer.getDispOverTime();
     }
 
     private class PosenetLiveStatFeed implements Runnable {
@@ -920,6 +922,10 @@ public class PosenetStats {
                             bothEyesFound = true;
                             dist = computeScale(leftEye, rightEye);
                             dist_to_hum.set(dist);
+
+                            //add dist to human to the circular buffer
+                            xVelBuffer.put(dist, SystemClock.elapsedRealtimeNanos());
+
                             Log.i(TAG, "Dist to hum is " + dist_to_hum.get());
                         }
                     } else if (currentPart == BodyPart.RIGHT_EYE) {
@@ -937,6 +943,10 @@ public class PosenetStats {
                             bothEyesFound = true;
                             dist = computeScale(leftEye, rightEye);
                             dist_to_hum.set(dist);
+
+                            //add dist to human to the circular buffer
+                            xVelBuffer.put(dist, SystemClock.elapsedRealtimeNanos());
+
                             Log.i(TAG, "Dist to hum is " + dist_to_hum.get());
                         }
 
@@ -966,6 +976,8 @@ public class PosenetStats {
                 double dist_rt_shoulder_eye = humanActualRaw[3].x - humanActualRaw[4].x;
                 double dist_left_shoulder_eye = humanActualRaw[5].x - humanActualRaw[2].x;
 
+                float adjusted_hum_ang_raw;
+
                 hum_tilt_ratio.set((float)dist_rt_shoulder_eye / (float)dist_left_shoulder_eye);
 
                 torsoTiltCalculatedCorrectly = true;
@@ -981,11 +993,19 @@ public class PosenetStats {
                 }
                 else {
                     //negative means turning right
-                    if (human_angle_raw < 0)
-                        hum_angle.set((float)human_angle_raw + Constants.angleCalibrationAdjustmentRight);
+                    if (human_angle_raw < 0) {
+                        adjusted_hum_ang_raw = (float) human_angle_raw + Constants.angleCalibrationAdjustmentRight;
                         //positive means turning left
-                    else
-                        hum_angle.set((float)human_angle_raw - Constants.angleCalibrationAdjustmentLeft);
+
+                        //add curr angle to circular buff
+                    }
+                    else {
+                        adjusted_hum_ang_raw = (float) human_angle_raw - Constants.angleCalibrationAdjustmentLeft;
+
+                        //add curr angle to circular buff
+                    }
+                    hum_angle.set(adjusted_hum_ang_raw);
+                    angVelBuffer.put(adjusted_hum_ang_raw, SystemClock.elapsedRealtimeNanos());
 
                     angleCalculatedCorrectly = true;
                 }
@@ -996,6 +1016,8 @@ public class PosenetStats {
             //otherwise if we do have nose and both eyes
             else if (humanActualRaw[0] != null && humanActualRaw[1] != null &&
                     humanActualRaw[2] != null && humanActualRaw[3] != null) {
+                float adjusted_hum_ang_raw;
+
                 Log.i(TAG, "Posenet: falling back to eyes/nose only for torso angle calculation");
 
                 //fall back to estimating human angle from ratio of [nose to rt eye]:[nose to left eye]
@@ -1019,11 +1041,17 @@ public class PosenetStats {
                 }
                 else {
                     //negative means turning right
-                    if (human_angle_raw < 0)
-                        hum_angle.set((float)human_angle_raw + Constants.angleCalibrationAdjustmentFaceRight);
+                    if (human_angle_raw < 0) {
+                        adjusted_hum_ang_raw = (float) human_angle_raw + Constants.angleCalibrationAdjustmentFaceRight;
+
                         //positive means turning left
-                    else
-                        hum_angle.set((float)human_angle_raw - Constants.angleCalibrationAdjustmentFaceLeft);
+                    }
+                    else {
+                        adjusted_hum_ang_raw = (float) human_angle_raw - Constants.angleCalibrationAdjustmentFaceLeft;
+
+                    }
+                    hum_angle.set(adjusted_hum_ang_raw);
+                    angVelBuffer.put(adjusted_hum_ang_raw, SystemClock.elapsedRealtimeNanos());
 
                     angleCalculatedCorrectly = true;
                 }
@@ -1065,10 +1093,12 @@ public class PosenetStats {
 
                 bbox_center = (bbox_rt + bbox_left) / 2;
 
-
+                float offset = (float)(bbox_center - Constants.FRAME_CENTER);
 
                 //save bounding box's offset from center of frame into the bb_off_center AtomicFloat
-                bb_off_center.set((float)(bbox_center - Constants.FRAME_CENTER));
+                bb_off_center.set(offset);
+
+                yVelBuffer.put(offset, SystemClock.elapsedRealtimeNanos());
 
                 bbOffCenterCalculatedCorrectly = true;
 
@@ -1105,8 +1135,12 @@ public class PosenetStats {
                 //find center point of eyes
                 bbox_center = (humanActualRaw[2].x + humanActualRaw[3].x) / 2;
 
+                float offset = (float)(bbox_center - Constants.FRAME_CENTER);
+
                 //save bounding box's offset from center of frame into the bb_off_center AtomicFloat
-                bb_off_center.set((float)(bbox_center - Constants.FRAME_CENTER));
+                bb_off_center.set(offset);
+
+                yVelBuffer.put(offset, SystemClock.elapsedRealtimeNanos());
 
                 bbOffCenterCalculatedCorrectly = true;
             }

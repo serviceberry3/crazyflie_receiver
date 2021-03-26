@@ -583,6 +583,9 @@ public class HumanFollower {
             //default to no adjustments
             float vx = 0, vy = 0, yaw = 0;
 
+            //print out velocities
+            Log.i(LOG_TAG, "X vel is " + posenetStats.getXVel() + ", y vel is " + posenetStats.getYVel() + ", ang vel is " + posenetStats.getAngVel());
+
             //state mach to determine what Posenet data to check and what corrections to make
             switch (currState) {
                 //the drone is idling, just hovering in place

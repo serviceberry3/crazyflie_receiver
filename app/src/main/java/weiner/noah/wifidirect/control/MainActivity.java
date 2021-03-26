@@ -64,7 +64,7 @@ public class MainActivity extends AppCompatActivity {
 
     /**SET THIS TO TRUE IF YOU WANT TO DEBUG HUMANFOLLOWER WITH NO FLYING*/
     //MAKE SURE DRONE IS OFF OR NOT PLUGGED IN!!!
-    private boolean DEBUG_HUMAN_FOLLOW = false;
+    private boolean DEBUG_HUMAN_FOLLOW = true;
 
     //should we relay packets to the drone? Must be atomic because it's read constantly by main thread, and modified by LandRunnable in HumanFollower
     private AtomicBoolean relayOn = new AtomicBoolean(true);
@@ -614,6 +614,9 @@ public class MainActivity extends AppCompatActivity {
                             switch (inData[0]) {
                                 case (byte)0x01:
                                     Log.i(TAG, "Received follow start signal from client app");
+
+                                    //TEST: CRASH APP IMMEDIATELY
+                                    int CRASH = 5 / 0;
 
                                     //start up the human follower thread
                                     mHumanFollower.start();
