@@ -40,6 +40,9 @@ public class ThermalService {
                     Log.i(LOG_TAG, "NEW THERMAL STATUS IS " + status);
                     mainActivity.showToastie("NEW THERMAL STATUS IS " + status);
 
+                    //set text for thermal stats text at top of screen
+                    mainActivity.setThermalStatusText(status);
+
                     //if the thermal status is "EMERGENCY", a shutdown is likely soon
                     if (status == PowerManager.THERMAL_STATUS_EMERGENCY) {
                         Log.i(LOG_TAG, "EMERGENCY LAND DUE TO PHONE OVERHEATING");

@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private ArrayAdapter aa;
     private TextView tv;
     private Button buttonDiscover;
+    private TextView thermalStatusText = null;
 
     /**SET THIS TO TRUE IF YOU WANT TO DEBUG HUMANFOLLOWER WITH NO FLYING*/
     //MAKE SURE DRONE IS OFF OR NOT PLUGGED IN!!!
@@ -165,6 +166,11 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    public void setThermalStatusText(int status) {
+        if (thermalStatusText != null)
+            thermalStatusText.setText("Thermal status: " + status);
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -213,6 +219,9 @@ public class MainActivity extends AppCompatActivity {
                 connectTo(deviceList.get(index));
             }
         });
+
+        //get thermal status textview
+        thermalStatusText = (TextView)findViewById(R.id.thermalStatus_text);
 
 
         //USB SETUP----------------------------------------------------------------------------------------------------------------------------------------

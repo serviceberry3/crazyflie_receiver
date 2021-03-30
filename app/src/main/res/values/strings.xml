@@ -5,5 +5,6 @@
 
     <string name="request_permission" translation_description="Request camera permission [CHAR_LIMIT=40]">This app needs camera permission.</string>
     <string name="camera_error" translation_description="Error regarding camera support[CHAR_LIMIT=40]">This device doesn\'t support Camera2 API.</string>
+    <string name="thermalStatus_text">Thermal status: 0</string>
 
 </resources>

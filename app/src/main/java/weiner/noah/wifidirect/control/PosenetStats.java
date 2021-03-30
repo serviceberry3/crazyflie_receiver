@@ -104,6 +104,8 @@ public class PosenetStats {
     private final CircBuffer yVelBuffer = new CircBuffer(CIRC_BUFF_SIZE);
     private final CircBuffer angVelBuffer = new CircBuffer(CIRC_BUFF_SIZE);
 
+    private float mPerPixel = 0;
+
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity, HumanFollower caller) {
         this.posenet = posenet;
@@ -147,10 +149,10 @@ public class PosenetStats {
             posenetLiveStatFeed = null;
         }
 
-        //stop logging thermal and battery readings
-        thermal.stopLogging();
+        //stop logging thermal and battery readings?
+        //thermal.stopLogging();
 
-        thermalService.stopListening();
+        //thermalService.stopListening();
     }
 
     public float getDistToHum() {
@@ -182,6 +184,8 @@ public class PosenetStats {
     }
 
     public float getXVel() {
+        float ret = xVelBuffer.getDispOverTime();
+
         //we're actually just looking for displacement div by time
         return xVelBuffer.getDispOverTime();
     }
@@ -1098,7 +1102,8 @@ public class PosenetStats {
                 //save bounding box's offset from center of frame into the bb_off_center AtomicFloat
                 bb_off_center.set(offset);
 
-                yVelBuffer.put(offset, SystemClock.elapsedRealtimeNanos());
+                //this one is in pixels
+                yVelBuffer.put(offset * mPerPixel, SystemClock.elapsedRealtimeNanos());
 
                 bbOffCenterCalculatedCorrectly = true;
 
@@ -1140,7 +1145,7 @@ public class PosenetStats {
                 //save bounding box's offset from center of frame into the bb_off_center AtomicFloat
                 bb_off_center.set(offset);
 
-                yVelBuffer.put(offset, SystemClock.elapsedRealtimeNanos());
+                yVelBuffer.put(offset * mPerPixel, SystemClock.elapsedRealtimeNanos());
 
                 bbOffCenterCalculatedCorrectly = true;
             }
@@ -1379,6 +1384,9 @@ public class PosenetStats {
             //how many real-world meters each pixel in the camera image represents
 
             Log.d(TAG, String.format("Each pixel on the screen represents %f meters in real life in plane of person's face", scale));
+
+            //save scale for calculating y vel of person
+            mPerPixel = scale;
 
             //find experimental distance from camera to human and display it on screen
 

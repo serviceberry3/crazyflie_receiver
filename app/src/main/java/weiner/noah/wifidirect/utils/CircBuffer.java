@@ -186,13 +186,12 @@ public class CircBuffer {
 
         Log.i(TAG, "Newest is " + newest + ", oldest is " + oldest);
 
-
        float disp = dataBuffer[newest] - dataBuffer[oldest];
 
        float timeElapsed = timeBuffer[newest] - timeBuffer[oldest];
 
        Log.i(TAG, "Elapsed time over buffer was " + timeElapsed / 1000000000 + "sec");
-
+       Log.i(TAG, "Disp over buffer was " + disp + " m or deg");
 
        //divide by 10^9 to find m/s
        return disp / (timeElapsed / 1000000000);

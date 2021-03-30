@@ -257,6 +257,16 @@ public class Thermal {
 
 
     public void startLogging() {
+        //make sure to nullify existing mLoggingThread
+        if (mLoggingThread != null)
+            mLoggingThread = null;
+
+        //make sure to stop and nullify existing mLogRunnable
+        if (mLogRunnable != null) {
+            mLogRunnable.onStop();
+            mLogRunnable = null;
+        }
+
         mLogRunnable = new LogRunnable();
         mLoggingThread = new Thread(mLogRunnable);
 
