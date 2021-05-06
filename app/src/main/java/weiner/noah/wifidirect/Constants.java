@@ -58,4 +58,6 @@ public class Constants {
     public static final float pupillaryDistanceCalibrationAdjustmentRight = 5f;
 
     public static final double FRAME_CENTER = 128.5;
+
+    //
 }

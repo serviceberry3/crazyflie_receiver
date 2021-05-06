@@ -65,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
 
     /**SET THIS TO TRUE IF YOU WANT TO DEBUG HUMANFOLLOWER WITH NO FLYING*/
     //MAKE SURE DRONE IS OFF OR NOT PLUGGED IN!!!
-    private boolean DEBUG_HUMAN_FOLLOW = true;
+    private boolean DEBUG_HUMAN_FOLLOW = false;
 
     //should we relay packets to the drone? Must be atomic because it's read constantly by main thread, and modified by LandRunnable in HumanFollower
     private AtomicBoolean relayOn = new AtomicBoolean(true);
@@ -142,14 +142,16 @@ public class MainActivity extends AppCompatActivity {
 
     //implement the interface/create an instance of it here
     private final IUsbConnectionHandler mConnectionHandler = new IUsbConnectionHandler() {
+        private final String USB_TAG = "USB_HANLDER";
+
         @Override
         public void onUsbStopped() {
-            Log.e("USBTAG", "Usb has stopped");
+            Log.e(USB_TAG, "Usb has stopped");
         }
 
         @Override
         public void onErrorLooperRunningAlready() {
-            Log.e("USBTAG", "Looper already running");
+            Log.e(USB_TAG, "Looper already running");
         }
 
         @Override
@@ -625,7 +627,7 @@ public class MainActivity extends AppCompatActivity {
                                     Log.i(TAG, "Received follow start signal from client app");
 
                                     //TEST: CRASH APP IMMEDIATELY
-                                    int CRASH = 5 / 0;
+                                    //int CRASH = 5 / 0;
 
                                     //start up the human follower thread
                                     mHumanFollower.start();
@@ -638,6 +640,9 @@ public class MainActivity extends AppCompatActivity {
                                     break;
                                 case (byte)0x03:
                                     Log.i(TAG, "Received kill signal from client app");
+
+                                    //TEST: CRASH APP IMMEDIATELY
+                                    //int CRASH = 5 / 0;
 
                                     //kill the drone forcefully, without running landing sequence
                                     mHumanFollower.kill();

@@ -86,6 +86,9 @@ public class PosenetStats {
     //whether, if we couldn't do full bb, we could at least find center offset using eyes
     private boolean bbOffCenterFellBackToEyesOnly = false;
 
+    //should we log thermal data?
+    private final boolean SHOULD_LOG_THERM_DATA = false;
+
     private Thread mLiveFeedThread = null;
     private PosenetLiveStatFeed posenetLiveStatFeed;
 
@@ -122,7 +125,6 @@ public class PosenetStats {
 
         //On construction, we'd like to launch a background thread which runs Posenet on incoming images from front-facing camera,
         //and allows polling of the data (distance from human, angle of human, etc)
-
     }
 
     public void start() {
@@ -130,8 +132,10 @@ public class PosenetStats {
         mLiveFeedThread = new Thread(posenetLiveStatFeed);
         mLiveFeedThread.start();
 
-        //start logging thermal and battery readings
-        thermal.startLogging();
+        if (SHOULD_LOG_THERM_DATA) {
+            //start logging thermal and battery readings
+            thermal.startLogging();
+        }
 
         thermalService.startListening();
     }
@@ -631,8 +635,9 @@ public class PosenetStats {
             public void onImageAvailable(ImageReader imageReader) {
                 Log.i(TAG, "onImageAvailable");
 
+                /*
                 int temp = thermal.getBattTemp();
-                Log.i(TAG, "Batter ytemp is " + temp);
+                Log.i(TAG, "Batter ytemp is " + temp);*/
 
                 //We need to wait until we have some size from onPreviewSizeChosen
                 if (previewWidth == 0 || previewHeight == 0) {
@@ -1302,12 +1307,10 @@ public class PosenetStats {
             float nan = infinity - infinity;
             float neg_infinity = infinity * -1;
 
-
             if (ratio > neg_infinity && ratio < infinity && ratio != nan) {
                 //angle is 0 if ratio exactly 1
                 if (ratio == 1)
                     return 0;
-
 
                 final double v = (Math.sqrt(2f) * Math.sqrt((29257f * ratio * ratio) + (2736f * ratio) + 29257f)) / (167f * ratio - 167f);
                 if (ratio >= -1f) {
@@ -1342,7 +1345,6 @@ public class PosenetStats {
                 //angle is 0 if ratio exactly 1
                 if (ratio == 1)
                     return 0;
-
 
                 final double v = Math.sqrt( (4594 * ratio * ratio) - (6688 * ratio) + 4594) ;
 
