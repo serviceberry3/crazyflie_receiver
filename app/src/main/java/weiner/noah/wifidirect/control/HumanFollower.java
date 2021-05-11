@@ -38,7 +38,7 @@ public class HumanFollower {
     //do we have new distance data from Posenet?
     private final AtomicBoolean freshPosenetDistData = new AtomicBoolean(false);
 
-    //do we have new angle data from Posenet?
+    //do we have new angle data from Posenet
     private final AtomicBoolean freshPosenetAngleData = new AtomicBoolean(false);
 
     //do we have new torso tilt data from Posenet?
@@ -65,6 +65,7 @@ public class HumanFollower {
 
     //let the desired distance always be point in between the far and near bounds
     private final float DIST_DESIRED = (FOLLOWING_FAR_BOUND + FOLLOWING_NEAR_BOUND) / 2;
+    private final float CTR_OFFSET_DESIRED = 0;
 
     //how far we'll let the person turn before making a pivot correction maneuver
     private final float FOLLOWING_ANGLE_THRESHOLD = 25f;
@@ -78,15 +79,15 @@ public class HumanFollower {
     private final FollowerPid yawPid;
     private final FollowerPid xAxisPid;
 
-    private final float distPidP = 0.4f;
-    private final float distPidI = 0.00001f;
-    private final float distPidD = 0.2f;
+    private final float distPidP = 0.16f;
+    private final float distPidI = 0.0f;
+    private final float distPidD = 0.0f;
 
     private final float yawPidP = 0;
     private final float yawPidI = 0;
     private final float yawPidD = 0;
 
-    private final float xAxisPidP = 0;
+    private final float xAxisPidP = 0.08f;
     private final float xAxisPidI = 0;
     private final float xAxisPidD = 0;
 
@@ -102,6 +103,8 @@ public class HumanFollower {
 
 
     /*control guide:
+    * HEIGHTHOLD PKTS
+    *
     * YAW
     *   POSITIVE: left wrt phone's POV
     *   NEGATIVE: right wrt phone's POV
@@ -113,6 +116,14 @@ public class HumanFollower {
     * PITCH (forward/back wrt phone's POV)
     *   POSITIVE: forward
     *   NEGATIVE: backward
+    *
+    * POSHOLD PKTS (wrt phone's POV)
+    *
+    *   NEGATIVE DX: backward
+    *   POSITIVE DX: forward
+    *   NEGATIVE DY: right
+    *   POSITIVE DY: left
+    *
     * */
 
     private static final Object[] xAxisUpdateLock = new Object[]{};
@@ -273,7 +284,6 @@ public class HumanFollower {
                 while (cnt[0] < 50) {
                     sendPacket(new HeightHoldPacket(0, 0, 0, (-TARG_HEIGHT + start_height) * (cnt[0] / 50.0f) + TARG_HEIGHT));
 
-
                     if (killCheck()) {
                         //end this thread
                         return;
@@ -283,7 +293,6 @@ public class HumanFollower {
 
                     cnt[0]++;
                 }
-
 
                 //STOP
                 sendPacket(new CommanderPacket(0, 0, 0, (char) 0));
@@ -452,6 +461,11 @@ public class HumanFollower {
         //create a fair semaphore with three permits, which means semphr will use a first-in first-out method (always give up to Thread that's been waiting longest)
         private Semaphore correctionLock = new Semaphore(3, true);
 
+        //whether to take angle psi into account for yawing
+        //if it's false, lateral movement of the human in the frame will result in the drone rolling
+        //if true, lateral movement of human in frame will result in yaw to angle psi
+        private LateralHandlingMethod mLateralMethod = LateralHandlingMethod.ROLL_TO_CENTER;
+
         final int[] cnt = {0};
         int thrust_mult = 1;
         int thrust_step = 100;
@@ -467,6 +481,9 @@ public class HumanFollower {
             mPauseLock = new Object();
             mPaused = false;
             mFinished = false;
+
+            //init lateral method to roll to center
+            this.mLateralMethod = LateralHandlingMethod.ROLL_TO_CENTER;
         }
 
         private int launchSequence() {
@@ -501,7 +518,6 @@ public class HumanFollower {
             }
 
             cnt[0] = 0;
-
 
             return 0;
         }
@@ -1041,11 +1057,6 @@ public class HumanFollower {
 
         private final String PID_TAG = "CTRL_PID";
 
-        //whether to take angle psi into account for yawing
-        //if it's false, lateral movement of the human in the frame will result in the drone rolling
-        //if true, lateral movement of human in frame will result in yaw to angle psi
-        private LateralHandlingMethod mLateralMethod = LateralHandlingMethod.ROLL_TO_CENTER;
-
         public void setLateralHandlingMethod(LateralHandlingMethod requestedMethod) {
             this.mLateralMethod = requestedMethod;
         }
@@ -1082,11 +1093,13 @@ public class HumanFollower {
 
                 //if dist NOT in acceptable range, run PID, with desired always being the middle value of the range
                 else if (dist_to_hum < FOLLOWING_NEAR_BOUND || dist_to_hum > FOLLOWING_FAR_BOUND) {
-                    Log.i(PID_TAG, "Human too close or too far, running PID ctlr...");
+                    //Log.i(PID_TAG, "Human too close or too far, running PID ctlr...");
                     recommended_dist_change_pid = distPid.update(DIST_DESIRED - dist_to_hum, timeElapsed);
 
-                    //set appropriate dist change for PositionPacket
-                    dx = recommended_dist_change_pid;
+                    Log.i(PID_TAG, "Hum too close or far, ran PID, setting position change " + -recommended_dist_change_pid);
+
+                    //set appropriate dist change for PositionPacket. Negate it because, e.g., if recommended change is negative, we need to move drone fwd, etc.
+                    dx = -recommended_dist_change_pid;
                 }
 
                 //otherwise human in frame and dist in acceptable range, so don't make pitch adjustments
@@ -1114,7 +1127,9 @@ public class HumanFollower {
                 //if hum not centered in frame, run PID, with desired always being the middle value of the range
                 else if (bb_center_off < -FOLLOWING_BB_CENTER_THRESHOLD || bb_center_off > FOLLOWING_BB_CENTER_THRESHOLD) {
                     Log.i(PID_TAG, "Human too far left or right, running PID ctlr...");
-                    recommended_x_change_pid = xAxisPid.update(0 - bb_center_off, timeElapsed);
+                    recommended_x_change_pid = xAxisPid.update(CTR_OFFSET_DESIRED - bb_center_off, timeElapsed) * posenetStats.getCurrScale();
+
+                    Log.i(PID_TAG, "Hum not centered in frame, ran PID, setting dy position change " + recommended_x_change_pid);
 
                     //set appropriate x-axis change for PositionPacket
                     dy = recommended_x_change_pid;
@@ -1124,10 +1139,10 @@ public class HumanFollower {
                 freshPosenetBbCenterOffset.set(false);
             }
             else {
-                Log.i(PID_TAG, "PID: Centering data not fresh, making no centering adjustments");
+                Log.i(PID_TAG, "PID: Centering data not fresh or lateral mode is YAW_TO_PSI, making no centering adjustments");
             }
 
-
+            /*
             //check torso tilt angle tau
             if (freshPosenetAngleData.get()) {
                 torso_tilt_ratio = posenetStats.getHumAngle();
@@ -1172,7 +1187,7 @@ public class HumanFollower {
 
             //if the pusher is on, push the drone sideways a little
             if (mPushaT.isOn())
-                dy = mPushaT.getPush();
+                dy = mPushaT.getPush();*/
 
             //send the packet with appropriate correction settings
             sendPacket(new PositionPacket(dx, dy, yaw, TARG_HEIGHT));

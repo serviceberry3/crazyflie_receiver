@@ -107,7 +107,7 @@ public class PosenetStats {
     private final CircBuffer yVelBuffer = new CircBuffer(CIRC_BUFF_SIZE);
     private final CircBuffer angVelBuffer = new CircBuffer(CIRC_BUFF_SIZE);
 
-    private float mPerPixel = 0;
+    private AtomicFloat mPerPixel = new AtomicFloat();
 
 
     public PosenetStats(Posenet posenet, MainActivity mainActivity, HumanFollower caller) {
@@ -192,6 +192,11 @@ public class PosenetStats {
 
         //we're actually just looking for displacement div by time
         return xVelBuffer.getDispOverTime();
+    }
+
+    //get current scale in meters per pixel based on calculated dist of person
+    public float getCurrScale() {
+        return mPerPixel.get();
     }
 
     public float getYVel() {
@@ -1108,7 +1113,7 @@ public class PosenetStats {
                 bb_off_center.set(offset);
 
                 //this one is in pixels
-                yVelBuffer.put(offset * mPerPixel, SystemClock.elapsedRealtimeNanos());
+                yVelBuffer.put(offset * mPerPixel.get(), SystemClock.elapsedRealtimeNanos());
 
                 bbOffCenterCalculatedCorrectly = true;
 
@@ -1150,7 +1155,7 @@ public class PosenetStats {
                 //save bounding box's offset from center of frame into the bb_off_center AtomicFloat
                 bb_off_center.set(offset);
 
-                yVelBuffer.put(offset * mPerPixel, SystemClock.elapsedRealtimeNanos());
+                yVelBuffer.put(offset * mPerPixel.get(), SystemClock.elapsedRealtimeNanos());
 
                 bbOffCenterCalculatedCorrectly = true;
             }
@@ -1388,7 +1393,7 @@ public class PosenetStats {
             Log.d(TAG, String.format("Each pixel on the screen represents %f meters in real life in plane of person's face", scale));
 
             //save scale for calculating y vel of person
-            mPerPixel = scale;
+            mPerPixel.set(scale);
 
             //find experimental distance from camera to human and display it on screen
 

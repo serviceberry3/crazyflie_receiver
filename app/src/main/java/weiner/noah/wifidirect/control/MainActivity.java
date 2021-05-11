@@ -133,7 +133,6 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-
     public UsbController usbController;
 
     //adjust these as necessary (vendor and product IDs)
