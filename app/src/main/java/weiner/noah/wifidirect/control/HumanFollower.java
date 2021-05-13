@@ -59,19 +59,25 @@ public class HumanFollower {
 
     private final float CORRECTION_VEL_ROLL = 0.1f;
     private final float CORRECTION_VEL_ROLL_SMALL = 0.05f;
-    private final float CORRECTION_VEL_YAW = 15f; //FIXME: yaw was way too fast, causing human to move out of frame
+    private final float CORRECTION_VEL_YAW = 15f;
     private final float FOLLOWING_FAR_BOUND = 0.52f;
     private final float FOLLOWING_NEAR_BOUND = 0.32f;
 
     //let the desired distance always be point in between the far and near bounds
     private final float DIST_DESIRED = (FOLLOWING_FAR_BOUND + FOLLOWING_NEAR_BOUND) / 2;
-    private final float CTR_OFFSET_DESIRED = 0;
+
+    //we want always want angle psi, angle from drone to human, to appear to be 0
+    private final float PSI_DESIRED = 0f;
+
+    //since the camera is located at the far right-hand side of the screen, we can perform a basic correction, considering
+    //the human's bounding box center point is usually already about -60 pixels from the frame center even when human is centered wrt the screen
+    private final float CTR_OFFSET_DESIRED = -15f; //NOTE: changes based on how the camera is positioned, etc. You'll probably need to adjust this frequently
 
     //how far we'll let the person turn before making a pivot correction maneuver
     private final float FOLLOWING_ANGLE_THRESHOLD = 25f;
     private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.70f; //FIXME: appears to be too low WAS: 1.65
     private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.45f;
-    private final float FOLLOWING_BB_CENTER_THRESHOLD = 60f; //maintain +- 55 pixels
+    private final float FOLLOWING_BB_CENTER_THRESHOLD = 40f; //maintain +- 40 pixels from CTR_OFFSET_DESIRED
 
     private final Device PNET_DEV_TO_USE = Device.GPU;
 
@@ -79,17 +85,17 @@ public class HumanFollower {
     private final FollowerPid yawPid;
     private final FollowerPid xAxisPid;
 
-    private final float distPidP = 0.16f;
+    private final float distPidP = 0.32f;
     private final float distPidI = 0.0f;
     private final float distPidD = 0.0f;
 
-    private final float yawPidP = 0;
-    private final float yawPidI = 0;
-    private final float yawPidD = 0;
+    private final float yawPidP = 0.08f;
+    private final float yawPidI = 0f;
+    private final float yawPidD = 0f;
 
-    private final float xAxisPidP = 0.08f;
-    private final float xAxisPidI = 0;
-    private final float xAxisPidD = 0;
+    private final float xAxisPidP = 0.16f;
+    private final float xAxisPidI = 0f;
+    private final float xAxisPidD = 0f;
 
     //time elapsed since last PID update()
     private long timeElapsed = 0;
@@ -99,8 +105,6 @@ public class HumanFollower {
 
     //left/right pusher for staying face-to-face with user
     private PushaT mPushaT;
-
-
 
     /*control guide:
     * HEIGHTHOLD PKTS
@@ -125,7 +129,6 @@ public class HumanFollower {
     *   POSITIVE DY: left
     *
     * */
-
     private static final Object[] xAxisUpdateLock = new Object[]{};
 
     public HumanFollower(UsbController usbController, MainActivity mainActivity) {
@@ -598,9 +601,13 @@ public class HumanFollower {
 
 
 
-        //main adjustment loop for human tracking - it works using a state machine. It works okay, but it's a pretty hacky technique. Better to use the PID version below.
-        //pivoting when mannequin turns, back/fwd when mannequin dist changes, centering if mannequin isn't in center of frame
-        /*PSEUDO
+        /**
+         *
+         * Main adjustment loop for human tracking - it works using a state machine. It works okay, but it's a pretty hacky technique. Better to use the PID version below.
+         * Pivoting when mannequin turns, back/fwd when mannequin dist changes, centering if mannequin isn't in center of frame.
+         * This function should also be rewritten in the future. There's a lot of code repeated, and it's too long.
+
+         PSEUDOCODE
         ON EACH LOOP:
         (We essentially have a semaphore that can be used by one of three different correction "threads." Distance is the initial recipient of said semaphore.)
         1. Let's assume (**FOR NOW**) that mannequin and drone start face-to-face.
@@ -1061,12 +1068,34 @@ public class HumanFollower {
             this.mLateralMethod = requestedMethod;
         }
 
+        public float estimatePsi() {
+            //z coordinate of point at center of shoulders
+            float z_cs = posenetStats.getDistToHum();
 
-        //PID controller version of the follower software block.
-        //The controllers correspond to POD’s yaw, distance from the human, and position along the human’s x-axis, H_x.
+            //estimated dist between drone and hum along camera coordinate frame's x axis
+            float x_cs = (posenetStats.getBbOffCenter() - CTR_OFFSET_DESIRED) * posenetStats.getCurrScale();
+
+            //calculate the estimated euclidean dist to the human (should be similar to z_cs)
+            double euclidean_dist_to_hum = Math.sqrt((x_cs * x_cs) + (z_cs * z_cs));
+
+            Log.i(LOG_TAG, "Estimated z_cs is " + z_cs + ", x_cs is " + x_cs + ", euclid dist is " + euclidean_dist_to_hum);
+
+            //finally, use basic trig to find psi, the yaw angle from drone to human
+            return (float)Math.toDegrees(Math.asin(x_cs / euclidean_dist_to_hum));
+        }
+
+
+        /**
+         * PID controller version of the follower software block.
+         * The controllers correspond to POD’s yaw, distance from the human, and position along the human’s x-axis, H_x.
+         * Keep in mind that the drone already runs PIDs to set the desired position, so we're nesting more PIDs on top of that lower level.
+         */
         private int follow_control_pid() {
             float dist_to_hum, torso_tilt_ratio, torso_tilt_ratio_abs, hum_angle, bb_center_off;
-            float recommended_dist_change_pid, recommended_x_change_pid;
+            float recommended_dist_change_pid, recommended_x_change_pid, recommended_yaw_change_pid;
+
+            //angle from drone to hum
+            float psi;
 
             //default to no adjustments
             float dx = 0, dy = 0, yaw = 0;
@@ -1074,7 +1103,7 @@ public class HumanFollower {
             //print out velocities
             Log.i(LOG_TAG, "X vel is " + posenetStats.getXVel() + ", y vel is " + posenetStats.getYVel() + ", ang vel is " + posenetStats.getAngVel());
 
-            //get time elapsed since last PID update
+            //get time elapsed in milliseconds since last PID update
             timeElapsed = System.currentTimeMillis() - prevTime;
 
             //check distance first
@@ -1120,13 +1149,14 @@ public class HumanFollower {
                 //check for inexistent/invalid bb center offset data
                 if (bb_center_off == -1.0f || bb_center_off == 0f) {
                     Log.i(PID_TAG, "HumFollower PID: Bb ctr data came back -1, skipping adjustment");
-
                     //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
                 }
 
                 //if hum not centered in frame, run PID, with desired always being the middle value of the range
-                else if (bb_center_off < -FOLLOWING_BB_CENTER_THRESHOLD || bb_center_off > FOLLOWING_BB_CENTER_THRESHOLD) {
+                else if (bb_center_off < CTR_OFFSET_DESIRED - FOLLOWING_BB_CENTER_THRESHOLD || bb_center_off > CTR_OFFSET_DESIRED + FOLLOWING_BB_CENTER_THRESHOLD) {
                     Log.i(PID_TAG, "Human too far left or right, running PID ctlr...");
+
+                    //the value returned from the PID ctrl will actually be in pixels, so scale it up to meters
                     recommended_x_change_pid = xAxisPid.update(CTR_OFFSET_DESIRED - bb_center_off, timeElapsed) * posenetStats.getCurrScale();
 
                     Log.i(PID_TAG, "Hum not centered in frame, ran PID, setting dy position change " + recommended_x_change_pid);
@@ -1138,11 +1168,44 @@ public class HumanFollower {
                 //set Posenet bb center offset data NOT fresh anymore
                 freshPosenetBbCenterOffset.set(false);
             }
+            //otherwise if we're in yawtopsi mode, adjust yaw appropriately to bring the human back to center of frame
+            else if (mLateralMethod == LateralHandlingMethod.YAW_TO_PSI && freshPosenetBbCenterOffset.get()) {
+                //ready to update bounding box center's offset wrt to frame offset
+                bb_center_off = posenetStats.getBbOffCenter();
+                Log.i(PID_TAG, "From HumFollower PID loop YAWTOPSI: bbox center offset is " + bb_center_off);
+
+                //check for inexistent/invalid bb center offset data
+                if (bb_center_off == -1.0f || bb_center_off == 0f) {
+                    Log.i(PID_TAG, "HumFollower PID: Bb ctr data came back -1, skipping adjustment");
+                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+                }
+
+                //if hum not centered in frame, run PID, with desired always being the middle value of the range
+                else if (bb_center_off < CTR_OFFSET_DESIRED - FOLLOWING_BB_CENTER_THRESHOLD || bb_center_off > CTR_OFFSET_DESIRED + FOLLOWING_BB_CENTER_THRESHOLD) {
+                    Log.i(PID_TAG, "Human too far left or right, running PID ctlr for yaw...");
+
+                    //let's calculate psi, the angle from the drone to the human
+                    psi = estimatePsi();
+                    Log.i(PID_TAG, "Estimated psi as " + psi + " degrees");
+
+                    //the value returned from the PID ctrl will actually be recommended angle adjustment of the drone.
+                    //what we'll be sending in the PositionPacket is requested yawVel in deg/s.
+                    //So we'll find that velocity by just deriving position using timeElapsed
+                    recommended_yaw_change_pid = yawPid.update(PSI_DESIRED - psi, timeElapsed) / (timeElapsed / 1000f); //find deg/sec
+
+                    Log.i(PID_TAG, "Hum not centered in frame, ran PID, setting yaw change " + recommended_yaw_change_pid);
+
+                    //set appropriate x-axis change for PositionPacket
+                    yaw = recommended_yaw_change_pid;
+                }
+
+                //set Posenet bb center offset data NOT fresh anymore
+                freshPosenetBbCenterOffset.set(false);
+            }
             else {
                 Log.i(PID_TAG, "PID: Centering data not fresh or lateral mode is YAW_TO_PSI, making no centering adjustments");
             }
 
-            /*
             //check torso tilt angle tau
             if (freshPosenetAngleData.get()) {
                 torso_tilt_ratio = posenetStats.getHumAngle();
@@ -1159,17 +1222,17 @@ public class HumanFollower {
                 else if (torso_tilt_ratio < -FOLLOWING_ANGLE_THRESHOLD) {
                     Log.i(PID_TAG, "HumFollower PID: Torso tilt ratio too small, switching on Pusha");
 
-                    //TODO: check if pusha is on, if not, switch on
-                    mPushaT.switchOn(0, this);
+                    //switch on the pusher to start pushing the drone left, this call will also set our lateral handling mode to YAWTOPSI
+                    mPushaT.switchOn(PushaDirection.LEFT, this);
                 }
                 else if (torso_tilt_ratio > FOLLOWING_ANGLE_THRESHOLD) {
                     Log.i(PID_TAG, "HumFollower PID: Torso tilt ratio too large, switching on Pusha");
 
-                    //TODO: check if pusha is on, if not, switch on
-                    mPushaT.switchOn(1, this);
+                    //switch on the pusher to start pushing the drone right, this call will also set our lateral handling mode to YAWTOPSI
+                    mPushaT.switchOn(PushaDirection.RIGHT, this);
                 }
                 else {
-                    //otherwise torso angle is in appropriate range, make sure pusha is off
+                    //otherwise torso angle is in appropriate range, make sure pusha is off and lateral mode is back to roll
                     mPushaT.switchOff(this);
                 }
 
@@ -1183,11 +1246,12 @@ public class HumanFollower {
                 Log.i(PID_TAG, "PID: Torso tilt data not fresh, making no adjustments");
             }
 
-            //TODO: check value of psi, if lateral handling set to YAW_TO_PSI, run yaw check using yawPid
-
             //if the pusher is on, push the drone sideways a little
-            if (mPushaT.isOn())
-                dy = mPushaT.getPush();*/
+            //note that the pusher will only be on if human is pivoting
+            if (mPushaT.isOn()) {
+                Log.i(PID_TAG, "PID: getting push from PushaT");
+                dy = mPushaT.getPush();
+            }
 
             //send the packet with appropriate correction settings
             sendPacket(new PositionPacket(dx, dy, yaw, TARG_HEIGHT));

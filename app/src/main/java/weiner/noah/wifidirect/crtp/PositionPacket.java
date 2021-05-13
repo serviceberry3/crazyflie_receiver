@@ -13,6 +13,7 @@ public class PositionPacket extends CrtpPacket {
      *
      * @param dx (m)
      * @param dy (m)
+     * @param yawRate (deg/s)
      * @param height (m)
      */
     public PositionPacket(float dx, float dy, float yawRate, float height) {

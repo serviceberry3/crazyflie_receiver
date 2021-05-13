@@ -6,18 +6,31 @@ package weiner.noah.wifidirect.control;
  */
 public class PushaT {
     private boolean isOn;
+    private PushaDirection mDirection;
+
+    //meters that the pusha will push drone left/right on each control loop cycle
+    private final float PUSH_MAGNITUDE = 0.05f;
 
     public PushaT() {
-
+        this.isOn = false;
     }
 
 
-    public void switchOn(int dir, HumanFollower.FollowRunnable callingRunnable) {
+    public void switchOn(PushaDirection dir, HumanFollower.FollowRunnable callingRunnable) {
+        //if the pusha is currently off, switch it on
+        if (!isOn) isOn = true;
+
+        //set direction to the requested
+        this.mDirection = dir;
+
         //make sure the drone takes angle psi into account while pusher is on to get circular motion (see paper)
         callingRunnable.setLateralHandlingMethod(LateralHandlingMethod.YAW_TO_PSI);
     }
 
     public void switchOff(HumanFollower.FollowRunnable callingRunnable) {
+        //if the pusha is currently on, switch it off
+        if (isOn) isOn = false;
+
         //switch back to normal lateral handling method
         callingRunnable.setLateralHandlingMethod(LateralHandlingMethod.ROLL_TO_CENTER);
     }
@@ -26,8 +39,11 @@ public class PushaT {
         return this.isOn;
     }
 
-    //TODO
+    //a push is being requested
     public float getPush() {
-        return 0;
+        if (mDirection == PushaDirection.RIGHT)
+            return -PUSH_MAGNITUDE;
+        else
+            return PUSH_MAGNITUDE;
     }
 }
