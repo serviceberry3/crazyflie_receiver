@@ -129,7 +129,7 @@ public class UsbController {
                 }
                 else {
                     //otherwise we can set up communication with the device
-                    Log.d("USBTAG", "Permission granted for the device");
+                    //Log.d(TAG, "Permission granted for the device");
 
                     //first check if device is null
                     if (device != null) {
@@ -140,7 +140,7 @@ public class UsbController {
                         }
                         else {
                             //Arduino not present
-                            Log.e("USBERROR", "USB permission granted, but this device is not Arduino");
+                            //Log.e(TAG, "USB permission granted, but this device is not Arduino");
                         }
                     }
                 }
@@ -149,7 +149,7 @@ public class UsbController {
     }
 
     private void init() {
-        Log.i(TAG, "UsbController init() calling listDevices()");
+        //Log.i(TAG, "UsbController init() calling listDevices()");
         listDevices(new IPermissionListener() {
             @Override
             public void onPermissionDenied(UsbDevice d) {
@@ -177,35 +177,35 @@ public class UsbController {
             connection = mUsbManager.openDevice(device);
 
             if (connection == null) {
-                Log.e(TAG, "openConnxnOnReceivedPerm(): openDevice() failed, connection is null!");
+                //Log.e(TAG, "openConnxnOnReceivedPerm(): openDevice() failed, connection is null!");
                 showToast("There was a problem opening the USB connection. Please close the app and try again");
                 return;
             }
 
-            Log.i("USBTAG", "Getting interface...");
+            //Log.i(TAG, "Getting interface...");
             UsbInterface usb2serial = device.getInterface(0);
-            Log.i("USBTAG", "Interface gotten");
+            //Log.i(TAG, "Interface gotten");
 
 
-            Log.i("USBTAG", "Claiming interface...");
+            //Log.i(TAG, "Claiming interface...");
             //claim interface 1 (Usb-serial) of the Duino, disconnecting kernel driver if necessary
             if (!connection.claimInterface(usb2serial, true)) {
                 //if we can't claim exclusive access to this UART line, then FAIL
-                Log.e("CONNECTION", "Failed to claim exclusive access to the USB interface.");
+                //Log.e(TAG, "Failed to claim exclusive access to the USB interface.");
                 return;
             }
 
-            Log.i("USBTAG", "Interface claimed");
+            //Log.i(TAG, "Interface claimed");
 
             //USB CONTROL INITIALIZATION
-            Log.i("USBTAG", "Control transfer start...");
+            //Log.i(TAG, "Control transfer start...");
             //set control line state, as defined in https://cscott.net/usb_dev/data/devclass/usbcdc11.pdf, p. 51
             connection.controlTransfer(0x21, 34, 0, 0, null, 0, 10);
 
             //set line encoding: 9600 bits/sec, 8data bits, no parity bit, 1 stop bit for UART
             connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80, 0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 10);
 
-            Log.i("USBTAG", "Control transfer end...");
+            //Log.i(TAG, "Control transfer end...");
 
             in = null;
             out = null;
@@ -216,13 +216,13 @@ public class UsbController {
                 if (thisEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
                     //found bulk endpoint, now distinguish which are read and write points
                     if (thisEndpoint.getDirection() == UsbConstants.USB_DIR_IN) {
-                        Log.d("ENDPTS", "Found in point");
-                        Log.d("ENDPTS", String.format("In address: %d", thisEndpoint.getAddress()));
+                        //Log.d(TAG, "Found in point");
+                        //Log.d(TAG, String.format("In address: %d", thisEndpoint.getAddress()));
                         in = thisEndpoint;
                     }
                     else {
-                        Log.d("ENDPTS", "Found out point");
-                        Log.d("ENDPTS", String.format("Out address: %d", thisEndpoint.getAddress()));
+                        //Log.d(TAG, "Found out point");
+                        //Log.d(TAG, String.format("Out address: %d", thisEndpoint.getAddress()));
                         out = thisEndpoint;
                     }
                 }
@@ -235,7 +235,7 @@ public class UsbController {
 
             //for safety, check one more time that the UsbDeviceConnection is non-null
             if (connection == null) {
-                Log.e(TAG, "openConnxnOnReceivedPerm(): connection is null!");
+                //Log.e(TAG, "openConnxnOnReceivedPerm(): connection is null!");
                 showToast("There was a problem opening the USB connection. Please close the app and try again");
                 return;
             }
@@ -244,16 +244,16 @@ public class UsbController {
             //start receiving data from drone asynchronously
             mReceiveThread = new Thread(new ReadRunnable());
             mReceiveThread.start();
-            Log.i(TAG, "USB connection setup finished successfully.");
+            //Log.i(TAG, "USB connection setup finished successfully.");
         }
 
         else {
-            Log.d("ERROR", "Error found");
+            //Log.d("ERROR", "Error found");
         }
     }
 
     private void listDevices(IPermissionListener permissionListener) {
-        Log.d("DBUG", "Welcome to listDevices()");
+        //Log.d("DBUG", "Welcome to listDevices()");
         HashMap<String, UsbDevice> devices = mUsbManager.getDeviceList();
 
         //print out all connected USB devices found
@@ -271,12 +271,12 @@ public class UsbController {
 
             //check to see if this device is one we're looking for
             if (vendId == VID && prodId == PID) {
-                Log.d("DEVICE", "listDevices found the expected device");
+                //Log.d(TAG, "listDevices found the expected device");
                 Toast.makeText(mApplicationContext, "Device found: " + device.getDeviceName(), Toast.LENGTH_SHORT).show();
 
                 //if we don't have permission to access the device, try getting permission by calling onPermDenied method of the passed IPermissionListener interface
                 if (!mUsbManager.hasPermission(device)) {
-                    Log.d("PERM", "Asking user for USB permission...");
+                    //Log.d(TAG, "Asking user for USB permission...");
                     permissionListener.onPermissionDenied(device);
                 }
                 else {
@@ -288,7 +288,7 @@ public class UsbController {
         }
 
         //if reached here with no return, we couldn't lock onto a found device or couldn't find, ERROR
-        Log.e("USBERROR", "No more devices to list");
+        //Log.e(TAG, "No more devices to list");
 
         //set error flag
         error = 1;
@@ -343,7 +343,7 @@ public class UsbController {
                         catch (InterruptedException e) {
                             //on interrupt exception, if stop is set, then call onStopped()
                             if (mStop) {
-                                Log.e(TAG, "InterruptedException in synchron");
+                                //Log.e(TAG, "InterruptedException in synchron");
                                 mConnectionHandler.onUsbStopped();
                                 return;
                             }
@@ -351,10 +351,10 @@ public class UsbController {
                         }
                     }
 
-                    Log.d("THREAD", String.format("Value of direction is: %d", direction));
+                    //Log.d(TAG, String.format("Value of direction is: %d", direction));
 
                     if (mStop) {
-                        Log.e(TAG, "Stopped after the sending thread was notify()ed, returning...");
+                        //Log.e(TAG, "Stopped after the sending thread was notify()ed, returning...");
                         mConnectionHandler.onUsbStopped();
                         transferring = 0;
                         return;
@@ -379,12 +379,12 @@ public class UsbController {
                         */
                     }
 
-                    Log.d("THREAD", "Setting |transferring| back to 0");
+                    //Log.d("THREAD", "Setting |transferring| back to 0");
                     transferring = 0;
                 }
             }
             else {
-                Log.d("QUEUE", "QUEUEING UP");
+                //Log.d("QUEUE", "QUEUEING UP");
                 //queue up
 
                 ByteBuffer buffer = ByteBuffer.allocate(1);
@@ -395,7 +395,7 @@ public class UsbController {
                 //wait for data to become available for receiving from the Arduino
                 while (true) {
                     if (request.queue(buffer, 1)) {
-                        Log.d("QUEUE", "WAITING FOR DATA...");
+                        //Log.d("QUEUE", "WAITING FOR DATA...");
                         connection.requestWait();
                         // wait for this request to be completed
                         // at this point buffer contains the data received
@@ -541,7 +541,7 @@ public class UsbController {
     //send packet to drone via USB, and receive Ack back
     public int sendBulkTransfer(byte[] data, byte[] receiveData) {
         long start, end;
-        Log.i(TAG, "sendBulkTransfer...");
+        //Log.i(TAG, "sendBulkTransfer...");
 
         int returnCode = -1;
 
@@ -648,7 +648,7 @@ public class UsbController {
             }*/
 
 
-            Log.i(TAG, "sendBulkTransfer waiting for notify...");
+            //Log.i(TAG, "sendBulkTransfer waiting for notify...");
             //need to wait here until ReadRunnable gets 0x09
             synchronized (pktSendLock) {
                 try {
@@ -658,7 +658,7 @@ public class UsbController {
                     e.printStackTrace();
                 }
             }
-            Log.i(TAG, "sendBulkTransfer got notify...");
+            //Log.i(TAG, "sendBulkTransfer got notify...");
 
             //at this point we've surely received 0x09 ack from drone, so we can return
 
@@ -666,7 +666,7 @@ public class UsbController {
             //Log.i(TAG, String.format("Got back USB transfer from drone: data is %x. Returning...", receiveData[0] /*, end - start*/));
         }
         else {
-            Log.e(TAG, "sendBulkTransfer(): cnnxn null!");
+            //Log.e(TAG, "sendBulkTransfer(): cnnxn null!");
         }
         return returnCode;
     }
@@ -682,7 +682,7 @@ public class UsbController {
             sSendLock.notify();
         }
         transferring = 1;
-        Log.d("TRANSFERRING VAL", String.format("%d", transferring));
+        //Log.d(TAG, String.format("%d", transferring));
 
         //wait until all receiving finished
         while (transferring == 1) {
@@ -691,14 +691,14 @@ public class UsbController {
 
         //Log debugging statements
         for (byte thisByte : dataIn) {
-            Log.d("BYTEREAD", String.format("%x", thisByte));
+            //Log.d(TAG, String.format("%x", thisByte));
         }
-        Log.d("TRANSFERRING VAL", String.format("%d", transferring));
+        //Log.d(TAG, String.format("%d", transferring));
     }
 
     //stop usb data transfer
     public void stop() {
-        Log.i(TAG, "stop(): called on UsbController instance");
+        //Log.i(TAG, "stop(): called on UsbController instance");
 
         //IGNORE FOR NOW, ONLY NEEDED IF USING RECEIVERUNNABLE
         /*
@@ -735,7 +735,7 @@ public class UsbController {
             mUsbThread.join();
         }*/
         if (mReceiveThread != null) {
-            Log.d(TAG, "Interrupting ReadRunnable...");
+            //Log.d(TAG, "Interrupting ReadRunnable...");
             mReceiveThread.interrupt();
         }
 
@@ -799,7 +799,7 @@ public class UsbController {
             while (true) {
                 if (Thread.interrupted()) {
                     //We've been interrupted, return
-                    Log.i(TAG, "ReadRunnable: interrupted, return");
+                    //Log.i(TAG, "ReadRunnable: interrupted, return");
                     return;
                 }
 
@@ -808,7 +808,7 @@ public class UsbController {
 
                 //make sure we have a valid UsbDeviceConnection
                 if (connection == null) {
-                    Log.e(TAG, "ReadRunnable: connection is null!");
+                    //Log.e(TAG, "ReadRunnable: connection is null!");
                     showToast("There was a problem with the USB connection. Please close the app and try again.");
                     return;
                 }
@@ -854,7 +854,7 @@ public class UsbController {
                     //if this is request for phone ack, queue 0x12 to be sent
                     else if (firstChar == (byte)0xcc) {
                         if (!sendingRequest.queue(outBuffer, 1)) {
-                            Log.e(TAG, "FAILED TO QUEUE PHONE ACK");
+                            //Log.e(TAG, "FAILED TO QUEUE PHONE ACK");
                             return;
                         }
                         else {
@@ -877,7 +877,7 @@ public class UsbController {
 
                     //if signal to kill has been sent by stop function, then end the thread so that we can reset
                     if (mKillReceiver) {
-                        Log.d(TAG, "ReadRunnable flagged to stop, returning...");
+                        //Log.d(TAG, "ReadRunnable flagged to stop, returning...");
                         mConnectionHandler.onUsbStopped();
 
                         synchronized (killLock) {

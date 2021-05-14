@@ -107,7 +107,6 @@ public class MainActivity extends AppCompatActivity {
         public void onFailure(int reason) {
             String errorMessage = "WiFi Direct Failed: ";
 
-
             switch (reason) {
                 case WifiP2pManager.BUSY:
                     errorMessage += "Framework busy.";

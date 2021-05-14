@@ -263,7 +263,7 @@ class Posenet(val context: Context, val filename: String = "posenet_model.tflite
         }
       }
 
-      Log.i("Test", String.format("Maxrow finished as %d", maxRow));
+      //Log.i("Test", String.format("Maxrow finished as %d", maxRow));
 
       keypointPositions[keypoint] = Pair(maxRow, maxCol)
     }

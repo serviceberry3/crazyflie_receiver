@@ -1,5 +1,7 @@
 package weiner.noah.wifidirect.control;
 
+import android.util.Log;
+
 /**
  * Convenience class to represent a block that gradually pushes the drone left or right
  * until torso tilt ratio is in appropriate range again
@@ -7,9 +9,10 @@ package weiner.noah.wifidirect.control;
 public class PushaT {
     private boolean isOn;
     private PushaDirection mDirection;
+    private final String TAG = "PushaT";
 
     //meters that the pusha will push drone left/right on each control loop cycle
-    private final float PUSH_MAGNITUDE = 0.05f;
+    private final float PUSH_MAGNITUDE = 0.03f; //should be in cm, but it's not executed very accurately
 
     public PushaT() {
         this.isOn = false;
@@ -17,6 +20,8 @@ public class PushaT {
 
 
     public void switchOn(PushaDirection dir, HumanFollower.FollowRunnable callingRunnable) {
+        Log.i(TAG, "Pusha switched on rqst");
+
         //if the pusha is currently off, switch it on
         if (!isOn) isOn = true;
 
@@ -28,6 +33,8 @@ public class PushaT {
     }
 
     public void switchOff(HumanFollower.FollowRunnable callingRunnable) {
+        Log.i(TAG, "Pusha switched off rqst");
+
         //if the pusha is currently on, switch it off
         if (isOn) isOn = false;
 

@@ -60,7 +60,7 @@ public class HumanFollower {
     private final float CORRECTION_VEL_ROLL = 0.1f;
     private final float CORRECTION_VEL_ROLL_SMALL = 0.05f;
     private final float CORRECTION_VEL_YAW = 15f;
-    private final float FOLLOWING_FAR_BOUND = 0.52f;
+    private final float FOLLOWING_FAR_BOUND = 0.47f;
     private final float FOLLOWING_NEAR_BOUND = 0.32f;
 
     //let the desired distance always be point in between the far and near bounds
@@ -69,15 +69,18 @@ public class HumanFollower {
     //we want always want angle psi, angle from drone to human, to appear to be 0
     private final float PSI_DESIRED = 0f;
 
+    //this parameter can be used to tune the pivoting
+    private final float PSI_SCALEUP = 1.45f; //i.e., always scale up psi by 1/5 when pivoting
+
     //since the camera is located at the far right-hand side of the screen, we can perform a basic correction, considering
     //the human's bounding box center point is usually already about -60 pixels from the frame center even when human is centered wrt the screen
     private final float CTR_OFFSET_DESIRED = -15f; //NOTE: changes based on how the camera is positioned, etc. You'll probably need to adjust this frequently
 
     //how far we'll let the person turn before making a pivot correction maneuver
-    private final float FOLLOWING_ANGLE_THRESHOLD = 25f;
-    private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.70f; //FIXME: appears to be too low WAS: 1.65
+    private final float FOLLOWING_ANGLE_THRESHOLD = 25f; //TODO: this seemed like a parameter that could be tuned better, but it also depends on preference
+    private final float FOLLOWING_TILT_RATIO_UPPER_BOUND = 1.70f;
     private final float FOLLOWING_TILT_RATIO_LOWER_BOUND = 0.45f;
-    private final float FOLLOWING_BB_CENTER_THRESHOLD = 40f; //maintain +- 40 pixels from CTR_OFFSET_DESIRED
+    private final float FOLLOWING_BB_CENTER_THRESHOLD = 30f; //maintain +- x pixels from CTR_OFFSET_DESIRED
 
     private final Device PNET_DEV_TO_USE = Device.GPU;
 
@@ -85,15 +88,15 @@ public class HumanFollower {
     private final FollowerPid yawPid;
     private final FollowerPid xAxisPid;
 
-    private final float distPidP = 0.32f;
+    private final float distPidP = 0.25f;
     private final float distPidI = 0.0f;
     private final float distPidD = 0.0f;
 
-    private final float yawPidP = 0.08f;
+    private final float yawPidP = 0.12f;
     private final float yawPidI = 0f;
     private final float yawPidD = 0f;
 
-    private final float xAxisPidP = 0.16f;
+    private final float xAxisPidP = 0.1f;
     private final float xAxisPidI = 0f;
     private final float xAxisPidD = 0f;
 
@@ -122,6 +125,9 @@ public class HumanFollower {
     *   NEGATIVE: backward
     *
     * POSHOLD PKTS (wrt phone's POV)
+    * YAW:
+    *   POSITIVE left wrt phone's POV
+    *   NEGATIVE: right wrt phone's POV
     *
     *   NEGATIVE DX: backward
     *   POSITIVE DX: forward
@@ -1081,7 +1087,7 @@ public class HumanFollower {
             Log.i(LOG_TAG, "Estimated z_cs is " + z_cs + ", x_cs is " + x_cs + ", euclid dist is " + euclidean_dist_to_hum);
 
             //finally, use basic trig to find psi, the yaw angle from drone to human
-            return (float)Math.toDegrees(Math.asin(x_cs / euclidean_dist_to_hum));
+            return (float)Math.toDegrees(Math.asin(x_cs / euclidean_dist_to_hum)) * PSI_SCALEUP;
         }
 
 
@@ -1117,7 +1123,8 @@ public class HumanFollower {
                 if (dist_to_hum == -1.0f || dist_to_hum == 0f) {
                     Log.i(PID_TAG, "Human not found, sending hover pkt");
 
-                    //if human not in frame or it's too early, just hover in place
+                    //if human not in frame or it's too early, just hover in place, make sure pusher off
+                    mPushaT.switchOff(this);
                 }
 
                 //if dist NOT in acceptable range, run PID, with desired always being the middle value of the range
@@ -1149,7 +1156,9 @@ public class HumanFollower {
                 //check for inexistent/invalid bb center offset data
                 if (bb_center_off == -1.0f || bb_center_off == 0f) {
                     Log.i(PID_TAG, "HumFollower PID: Bb ctr data came back -1, skipping adjustment");
-                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+
+                    //if human not in frame or it's too early, make no adjustment, maintain steady hover
+                    mPushaT.switchOff(this);
                 }
 
                 //if hum not centered in frame, run PID, with desired always being the middle value of the range
@@ -1177,7 +1186,9 @@ public class HumanFollower {
                 //check for inexistent/invalid bb center offset data
                 if (bb_center_off == -1.0f || bb_center_off == 0f) {
                     Log.i(PID_TAG, "HumFollower PID: Bb ctr data came back -1, skipping adjustment");
-                    //if human not in frame or it's too early, make no adjustment, and don't move out of IDLING state
+
+                    //if human not in frame or it's too early, make no adjustment, maintain steady hover
+                    mPushaT.switchOff(this);
                 }
 
                 //if hum not centered in frame, run PID, with desired always being the middle value of the range
@@ -1216,7 +1227,8 @@ public class HumanFollower {
                 if (torso_tilt_ratio == -1.0f || torso_tilt_ratio == 0f) { //FIXME: DEAL WITH EYES PASSING BEYOND SHOULDERS
                     Log.i(PID_TAG, "HumFollower PID: Torso tilt ratio value problem, sending hover pkt and skipping adjustment");
 
-                    //make no adjustment
+                    //make no adjustment, make sure pusher is off
+                    mPushaT.switchOff(this);
                 }
                 //if person has rotated too far right or left
                 else if (torso_tilt_ratio < -FOLLOWING_ANGLE_THRESHOLD) {
